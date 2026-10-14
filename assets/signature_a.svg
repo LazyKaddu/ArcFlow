@@ -1,8 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 50" fill="none">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 70 55" fill="none">
   <!-- Stylized calligraphy A -->
-  <path d="M 8,42 C 14,35 20,20 25,8 C 27,6 29,8 31,14 L 38,42" stroke="#FFFFFF" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M 8,46 C 14,38 22,22 28,8 C 30,5 33,8 35,16 L 44,46" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
   <!-- Dynamic Crossbar extending to upper-right arrow -->
-  <path d="M 6,29 C 14,27 28,26 44,14" stroke="#FFFFFF" stroke-width="2.8" stroke-linecap="round"/>
+  <path d="M 6,32 C 16,30 32,28 52,14" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round"/>
   <!-- Arrow head on the right -->
-  <polyline points="37,13 45,13 45,21" fill="none" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <polyline points="42,12 53,13 52,24" fill="none" stroke="#FFFFFF" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

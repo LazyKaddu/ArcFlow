@@ -1,15 +1,105 @@
 use eframe::egui;
 use crate::ui::app::AppState;
+use crate::ui::theme;
 
-/// Renders the splash screen and listens for interrupt to transition to Animating
-pub fn render_splash(_ctx: &egui::Context) -> Option<AppState> {
-    // Phase 3 will implement the interactive canvas and interrupt polling
-    None
+/// Paints the smooth dark horizontal gradient background (matching Frame 34 & Frame 35)
+pub fn paint_background_gradient(painter: &egui::Painter, rect: egui::Rect) {
+    let mut mesh = egui::Mesh::default();
+    let left_col = theme::BG_LEFT;
+    let right_col = theme::BG_RIGHT;
+
+    mesh.vertices.push(egui::epaint::Vertex {
+        pos: rect.min,
+        uv: egui::epaint::WHITE_UV,
+        color: left_col,
+    });
+    mesh.vertices.push(egui::epaint::Vertex {
+        pos: egui::pos2(rect.min.x, rect.max.y),
+        uv: egui::epaint::WHITE_UV,
+        color: left_col,
+    });
+    mesh.vertices.push(egui::epaint::Vertex {
+        pos: egui::pos2(rect.max.x, rect.min.y),
+        uv: egui::epaint::WHITE_UV,
+        color: right_col,
+    });
+    mesh.vertices.push(egui::epaint::Vertex {
+        pos: rect.max,
+        uv: egui::epaint::WHITE_UV,
+        color: right_col,
+    });
+
+    mesh.add_triangle(0, 1, 2);
+    mesh.add_triangle(2, 1, 3);
+
+    painter.add(egui::Shape::mesh(mesh));
+}
+
+/// Renders the splash screen (Frame 34) and listens for hardware interrupts
+pub fn render_splash(ctx: &egui::Context) -> Option<AppState> {
+    let mut next_state = None;
+
+    egui::CentralPanel::default()
+        .frame(egui::Frame::none())
+        .show(ctx, |ui| {
+            let screen_rect = ui.max_rect();
+            let painter = ui.painter().clone();
+
+            // 1. Draw smooth dark gradient background
+            paint_background_gradient(&painter, screen_rect);
+
+            // 2. Top-Left: "A↗" brand signature
+            let a_mark_rect = egui::Rect::from_min_size(
+                egui::pos2(screen_rect.min.x + 28.0, screen_rect.min.y + 24.0),
+                egui::vec2(36.0, 30.0),
+            );
+            ui.put(
+                a_mark_rect,
+                egui::Image::new(egui::include_image!("../../assets/arcflow_logo.svg"))
+                    .fit_to_exact_size(a_mark_rect.size()),
+            );
+
+            // 3. Bottom-Right: "created by @github/LazzyKaddu"
+            let footer_pos = egui::pos2(screen_rect.max.x - 24.0, screen_rect.max.y - 24.0);
+            painter.text(
+                footer_pos,
+                egui::Align2::RIGHT_BOTTOM,
+                "created by @github/LazzyKaddu",
+                egui::FontId::monospace(13.0),
+                egui::Color32::from_rgb(125, 125, 135),
+            );
+
+            // 4. Centered Logo: arcflow_logo.svg dead-center on the screen
+            ui.centered_and_justified(|ui| {
+                ui.add(
+                    egui::Image::new(egui::include_image!("../../assets/arcflow_logo_dashboard.svg"))
+                        .fit_to_exact_size(egui::vec2(440.0, 86.0)),
+                );
+            });
+
+            // 5. Input Polling: check for pointer click, Space, or Enter
+            if ui.input(|i| {
+                i.pointer.any_click()
+                    || i.key_pressed(egui::Key::Space)
+                    || i.key_pressed(egui::Key::Enter)
+            }) {
+                next_state = Some(AppState::Animating {
+                    start_time: ui.input(|i| i.time),
+                });
+            }
+        });
+
+    next_state
 }
 
 /// Renders the transition interpolation frame
-pub fn render_animating(_ctx: &egui::Context, _start_time: f64) -> Option<AppState> {
-    // Phase 4 will implement the 60 FPS interpolation
+pub fn render_animating(ctx: &egui::Context, start_time: f64) -> Option<AppState> {
+    let elapsed = (ctx.input(|i| i.time) - start_time) as f32;
+    ctx.request_repaint();
+    if elapsed >= 1.0 {
+        return Some(AppState::Dashboard);
+    }
+    render_splash(ctx);
     None
 }
 
