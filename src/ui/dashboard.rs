@@ -4,33 +4,57 @@ use crate::ui::theme;
 
 /// Paints the smooth dark horizontal gradient background (matching Frame 34 & Frame 35)
 pub fn paint_background_gradient(painter: &egui::Painter, rect: egui::Rect) {
+    let num_slices = 256;
     let mut mesh = egui::Mesh::default();
+
     let left_col = theme::BG_LEFT;
     let right_col = theme::BG_RIGHT;
 
-    mesh.vertices.push(egui::epaint::Vertex {
-        pos: rect.min,
-        uv: egui::epaint::WHITE_UV,
-        color: left_col,
-    });
-    mesh.vertices.push(egui::epaint::Vertex {
-        pos: egui::pos2(rect.min.x, rect.max.y),
-        uv: egui::epaint::WHITE_UV,
-        color: left_col,
-    });
-    mesh.vertices.push(egui::epaint::Vertex {
-        pos: egui::pos2(rect.max.x, rect.min.y),
-        uv: egui::epaint::WHITE_UV,
-        color: right_col,
-    });
-    mesh.vertices.push(egui::epaint::Vertex {
-        pos: rect.max,
-        uv: egui::epaint::WHITE_UV,
-        color: right_col,
-    });
+    let r1 = left_col.r() as f32;
+    let g1 = left_col.g() as f32;
+    let b1 = left_col.b() as f32;
 
-    mesh.add_triangle(0, 1, 2);
-    mesh.add_triangle(2, 1, 3);
+    let r2 = right_col.r() as f32;
+    let g2 = right_col.g() as f32;
+    let b2 = right_col.b() as f32;
+
+    for i in 0..=num_slices {
+        let frac = i as f32 / num_slices as f32;
+        let x = rect.min.x + frac * rect.width();
+
+        // 30% left to 80% left smooth transition with quintic smootherstep
+        let t = if frac <= 0.30 {
+            0.0_f32
+        } else if frac >= 0.80 {
+            1.0_f32
+        } else {
+            let p = (frac - 0.30) / 0.50;
+            // Perlin quintic smootherstep: 6p^5 - 15p^4 + 10p^3 (zero 1st and 2nd derivatives at boundaries)
+            p * p * p * (p * (p * 6.0 - 15.0) + 10.0)
+        };
+
+        let r = (r1 + (r2 - r1) * t).round() as u8;
+        let g = (g1 + (g2 - g1) * t).round() as u8;
+        let b = (b1 + (b2 - b1) * t).round() as u8;
+        let col = egui::Color32::from_rgb(r, g, b);
+
+        mesh.vertices.push(egui::epaint::Vertex {
+            pos: egui::pos2(x, rect.min.y),
+            uv: egui::epaint::WHITE_UV,
+            color: col,
+        });
+        mesh.vertices.push(egui::epaint::Vertex {
+            pos: egui::pos2(x, rect.max.y),
+            uv: egui::epaint::WHITE_UV,
+            color: col,
+        });
+
+        if i > 0 {
+            let idx = (i as u32) * 2;
+            mesh.add_triangle(idx - 2, idx - 1, idx);
+            mesh.add_triangle(idx, idx - 1, idx + 1);
+        }
+    }
 
     painter.add(egui::Shape::mesh(mesh));
 }
@@ -251,23 +275,29 @@ pub fn paint_project_card(
 
     // Drop shadow matching Figma specifications: { x: 0, y: 0, blur: 30, spread: 6 }
     let shadow_color = egui::Color32::from_rgba_unmultiplied(
-        0,
-        0,
-        0,
-        (alpha * if is_hovered { 170.0 } else { 135.0 }) as u8,
+        40,
+        40,
+        40,
+        (alpha * if is_hovered { 170.0 } else { 100.0 }) as u8,
     );
     let figma_shadow = egui::epaint::Shadow {
         offset: egui::vec2(0.0, 0.0),
-        blur: 30.0,
-        spread: 6.0,
+        blur: 33.0,
+        spread: 2.0,
         color: shadow_color,
     };
 
-    let bg_color = if is_hovered {
-        egui::Color32::from_rgba_unmultiplied(85, 85, 92, alpha_u8)
+    let base_color = if is_hovered {
+        theme::CARD_BG_HOVER
     } else {
-        egui::Color32::from_rgba_unmultiplied(74, 74, 80, alpha_u8)
+        theme::CARD_BG
     };
+    let bg_color = egui::Color32::from_rgba_unmultiplied(
+        base_color.r(),
+        base_color.g(),
+        base_color.b(),
+        alpha_u8,
+    );
 
     let card_frame = egui::Frame::none()
         .rounding(card_rounding)

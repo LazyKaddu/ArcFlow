@@ -1,17 +1,17 @@
 //! Figma-style custom styling, dark gradient colors, and mathematical easing functions
 use eframe::egui::Color32;
 
-pub const BG_LEFT: Color32 = Color32::from_rgb(26, 26, 28);
-pub const BG_RIGHT: Color32 = Color32::from_rgb(82, 82, 88);
+pub const BG_LEFT: Color32 = Color32::from_rgb(55, 55, 55);
+pub const BG_RIGHT: Color32 = Color32::from_rgb(121, 119, 119);
 pub const BG_PANEL: Color32 = Color32::from_rgb(32, 32, 36);
 
-pub const CARD_BG: Color32 = Color32::from_rgb(70, 70, 75);
-pub const CARD_BG_HOVER: Color32 = Color32::from_rgb(84, 84, 90);
+pub const CARD_BG: Color32 = Color32::from_rgb(98,98 ,98);
+pub const CARD_BG_HOVER: Color32 = Color32::from_rgb(92, 92, 92);
 pub const CARD_BORDER: Color32 = Color32::from_rgb(95, 95, 102);
 
 pub const TEXT_PRIMARY: Color32 = Color32::from_rgb(255, 255, 255);
 pub const TEXT_SECONDARY: Color32 = Color32::from_rgb(215, 215, 222);
-pub const TEXT_MUTED: Color32 = Color32::from_rgb(170, 170, 180);
+pub const TEXT_MUTED: Color32 = Color32::from_rgb(159, 151, 151);
 
 /// Cubic ease-out: starts fast, smoothly decelerates
 #[inline]
