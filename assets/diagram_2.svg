@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 340 360" fill="none">
+  <!-- Incoming curve to Node 2 -->
+  <path d="M 190,0 C 205,25 210,40 195,65" stroke="#9E9EA8" stroke-width="2" stroke-linecap="round" fill="none"/>
+  <polygon points="190,52 193,70 203,57" fill="#9E9EA8" />
+
+  <!-- Node 2: "yes you are..." (tilted +10 deg) -->
+  <g transform="translate(130, 60) rotate(9)">
+    <rect x="0" y="0" width="100" height="85" rx="14" fill="#67676F" stroke="#7E7E88" stroke-width="1.5" />
+    <text x="50" y="40" font-family="monospace, sans-serif" font-size="10" fill="#E5E7EB" text-anchor="middle" font-weight="500">yes you</text>
+    <text x="50" y="55" font-family="monospace, sans-serif" font-size="10" fill="#E5E7EB" text-anchor="middle" font-weight="500">are ...</text>
+  </g>
+
+  <!-- Branch left to Node 3 -->
+  <path d="M 140,140 C 110,180 125,210 135,230" stroke="#9E9EA8" stroke-width="2" stroke-linecap="round" fill="none"/>
+  <polygon points="128,218 138,235 141,220" fill="#9E9EA8" />
+
+  <!-- Node 3: "Yes that was not unexpected to happen" -->
+  <g transform="translate(90, 230) rotate(-6)">
+    <rect x="0" y="0" width="105" height="95" rx="14" fill="#67676F" stroke="#7E7E88" stroke-width="1.5" />
+    <text x="52" y="36" font-family="monospace, sans-serif" font-size="9" fill="#E5E7EB" text-anchor="middle" font-weight="500">Yes that was</text>
+    <text x="52" y="50" font-family="monospace, sans-serif" font-size="9" fill="#E5E7EB" text-anchor="middle" font-weight="500">not unexpected</text>
+    <text x="52" y="64" font-family="monospace, sans-serif" font-size="9" fill="#E5E7EB" text-anchor="middle" font-weight="500">to happen</text>
+  </g>
+
+  <!-- Branch right to Node 4 -->
+  <path d="M 230,130 C 270,165 275,190 280,210" stroke="#9E9EA8" stroke-width="2" stroke-linecap="round" fill="none"/>
+  <polygon points="272,198 282,215 285,200" fill="#9E9EA8" />
+
+  <!-- Node 4: "wait I also h..." -->
+  <g transform="translate(260, 210) rotate(12)">
+    <rect x="0" y="0" width="90" height="85" rx="14" fill="#67676F" stroke="#7E7E88" stroke-width="1.5" />
+    <text x="45" y="38" font-family="monospace, sans-serif" font-size="9" fill="#E5E7EB" text-anchor="middle" font-weight="500">wait I</text>
+    <text x="45" y="52" font-family="monospace, sans-serif" font-size="9" fill="#E5E7EB" text-anchor="middle" font-weight="500">also h...</text>
+  </g>
+</svg>
