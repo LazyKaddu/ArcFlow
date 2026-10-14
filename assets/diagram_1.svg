@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 340 320" fill="none">
+  <!-- Incoming bezier curve from top-left -->
+  <path d="M 20,10 C 130,5 240,40 240,110 C 240,135 220,150 205,160" stroke="#9E9EA8" stroke-width="2" stroke-linecap="round" fill="none"/>
+  <!-- Arrowhead pointing to Node 1 -->
+  <polygon points="208,148 200,165 215,162" fill="#9E9EA8" />
+
+  <!-- Node 1: "talk : hello newbie nod to" (slight tilt) -->
+  <g transform="translate(140, 165) rotate(-3)">
+    <rect x="0" y="0" width="110" height="90" rx="14" fill="#67676F" stroke="#7E7E88" stroke-width="1.5" />
+    <text x="55" y="42" font-family="monospace, sans-serif" font-size="10" fill="#E5E7EB" text-anchor="middle" font-weight="500">talk : hello</text>
+    <text x="55" y="58" font-family="monospace, sans-serif" font-size="10" fill="#E5E7EB" text-anchor="middle" font-weight="500">newbie nod to</text>
+  </g>
+
+  <!-- Loop-back bezier curve on right of Node 1 -->
+  <path d="M 245,195 C 295,190 320,240 290,265 C 265,285 240,270 235,260" stroke="#9E9EA8" stroke-width="2" stroke-linecap="round" fill="none"/>
+  <polygon points="245,268 230,256 238,272" fill="#9E9EA8" />
+
+  <!-- Outgoing curve connecting to Node 2 -->
+  <path d="M 180,255 C 160,285 170,305 190,320" stroke="#9E9EA8" stroke-width="2" stroke-linecap="round" fill="none"/>
+</svg>

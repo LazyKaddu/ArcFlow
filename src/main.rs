@@ -1,3 +1,3 @@
-fn main() {
-    println!("Hello, world!");
+fn main() -> eframe::Result<()> {
+    ArcFlow::ui::app::run_app()
 }
