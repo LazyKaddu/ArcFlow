@@ -292,7 +292,7 @@ This tree describes the intended organization; individual modules may be introdu
 
 The following roadmap outlines potential development milestones.
 
-- [ ] Establish the native application shell and project dashboard.
+- [x] Establish the native application shell and project dashboard.
 - [ ] Implement project creation, loading, and saving.
 - [ ] Integrate the interactive node canvas.
 - [ ] Implement dialogue, condition, and action nodes.
@@ -321,9 +321,8 @@ For substantial changes, consider opening an issue first to discuss the proposed
 
 ## License
 
-ArcFlow's license should be specified in the repository's `LICENSE` file.
+ArcFlow is free and open-source software distributed under the [MIT License](file:///home/kaddulive/Desktop/Projects/ArcFlow/LICENSE).
 
-If the project is distributed under the MIT License, it can be described as free and open-source software under that license.
 
 ---
 
