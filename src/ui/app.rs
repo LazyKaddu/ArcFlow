@@ -11,12 +11,14 @@ pub enum AppState {
 
 pub struct ArcFlowApp {
     state: AppState,
+    canvas_state: crate::ui::editor::canvas::CanvasState,
 }
 
 impl Default for ArcFlowApp {
     fn default() -> Self {
         Self {
             state: AppState::Splash,
+            canvas_state: crate::ui::editor::canvas::CanvasState::default(),
         }
     }
 }
@@ -56,22 +58,44 @@ impl eframe::App for ArcFlowApp {
 
 impl ArcFlowApp {
     fn render_editor(&mut self, ctx: &egui::Context, project_name: String) {
-        // Top toolbar
+        // Temporary top panel for navigation back until Phase 4 floating toolbar
         egui::TopBottomPanel::top("top_panel").exact_height(40.0).show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.add_space(8.0);
-                if ui.button("← Back").clicked() {
+                if ui.button("← Back to Dashboard").clicked() {
                     self.state = AppState::Dashboard;
                 }
                 ui.separator();
                 ui.label(egui::RichText::new(&project_name).strong());
+                ui.separator();
+                ui.label(
+                    egui::RichText::new(format!(
+                        "Zoom: {:.0}% | Pan: ({:.0}, {:.0})",
+                        self.canvas_state.zoom * 100.0,
+                        self.canvas_state.pan.x,
+                        self.canvas_state.pan.y
+                    ))
+                    .color(egui::Color32::from_rgb(180, 180, 180)),
+                );
             });
         });
 
-        // The rest of the editor stub (Canvas/Sidebars) remains the same...
-        egui::SidePanel::left("left_panel").show(ctx, |ui| ui.heading("Assets"));
-        egui::SidePanel::right("right_panel").show(ctx, |ui| ui.heading("Inspector"));
-        egui::CentralPanel::default().show(ctx, |ui| ui.centered_and_justified(|ui| ui.label("Node Canvas")));
+        // Viewport canvas fills the central area
+        egui::CentralPanel::default()
+            .frame(egui::Frame::none().fill(egui::Color32::from_rgb(63, 63, 67)))
+            .show(ctx, |ui| {
+                let _interaction = crate::ui::editor::canvas::handle_canvas_navigation(
+                    ui,
+                    &mut self.canvas_state,
+                    true,
+                );
+                let painter = ui.painter();
+                crate::ui::editor::canvas::render_frustum_culled_dot_grid(
+                    ui,
+                    painter,
+                    &self.canvas_state,
+                );
+            });
     }
 }
 
