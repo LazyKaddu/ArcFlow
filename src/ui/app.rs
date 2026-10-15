@@ -20,6 +20,8 @@ pub struct ArcFlowApp {
     selected_connection: Option<usize>,
     search_query: String,
     is_dirty: bool,
+    show_export_modal: bool,
+    export_target_unreal: bool,
 }
 
 impl Default for ArcFlowApp {
@@ -35,6 +37,8 @@ impl Default for ArcFlowApp {
             selected_connection: None,
             search_query: String::new(),
             is_dirty: false,
+            show_export_modal: false,
+            export_target_unreal: true,
         }
     }
 }
@@ -96,6 +100,9 @@ impl ArcFlowApp {
         }
         if toolbar_actions.save_clicked {
             self.is_dirty = false;
+        }
+        if toolbar_actions.export_clicked {
+            self.show_export_modal = true;
         }
         if toolbar_actions.search_query_changed && !self.search_query.trim().is_empty() {
             let query = self.search_query.trim().to_lowercase();
@@ -213,6 +220,77 @@ impl ArcFlowApp {
                     self.selected_connection = None;
                 }
             });
+
+        // 5. Engine Export Modal Dialog
+        if self.show_export_modal {
+            let mut show = self.show_export_modal;
+            let mut close_clicked = false;
+
+            egui::Window::new("Export Engine Dialogue AST")
+                .open(&mut show)
+                .resizable(true)
+                .default_size([580.0, 440.0])
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .show(ctx, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.selectable_value(&mut self.export_target_unreal, true, "Unreal Engine (DataTable)");
+                        ui.selectable_value(&mut self.export_target_unreal, false, "Godot Engine (Resource)");
+                    });
+
+                    ui.add_space(8.0);
+
+                    // Validation report
+                    let report = crate::export::walker::validate_narrative_graph(&self.graph);
+                    if report.is_valid {
+                        ui.label(
+                            egui::RichText::new("✓ Graph Validation Passed: Narrative flow is structurally sound.")
+                                .color(egui::Color32::from_rgb(120, 220, 140))
+                                .strong(),
+                        );
+                    } else {
+                        ui.label(
+                            egui::RichText::new("⚠ Graph Warning: Infinite cycle detected without exit condition.")
+                                .color(egui::Color32::from_rgb(240, 120, 120))
+                                .strong(),
+                        );
+                    }
+
+                    if !report.dead_ends.is_empty() {
+                        ui.label(
+                            egui::RichText::new(format!("Notice: Dead ends in dialogue nodes: {:?}", report.dead_ends))
+                                .color(egui::Color32::from_rgb(220, 180, 100)),
+                        );
+                    }
+
+                    ui.add_space(8.0);
+                    ui.separator();
+                    ui.add_space(4.0);
+
+                    let json_content = if self.export_target_unreal {
+                        crate::export::engine_json::compile_unreal_json(&self.graph, &project_name).unwrap_or_default()
+                    } else {
+                        crate::export::engine_json::compile_godot_json(&self.graph, &self.blackboard, &project_name).unwrap_or_default()
+                    };
+
+                    egui::ScrollArea::both().max_height(280.0).show(ui, |ui| {
+                        let mut display_text = json_content;
+                        ui.add(
+                            egui::TextEdit::multiline(&mut display_text)
+                                .font(egui::FontId::monospace(11.0))
+                                .text_color(egui::Color32::from_rgb(220, 220, 230))
+                                .desired_width(520.0),
+                        );
+                    });
+
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        if ui.button("Close").clicked() {
+                            close_clicked = true;
+                        }
+                    });
+                });
+            self.show_export_modal = show && !close_clicked;
+        }
     }
 }
 

@@ -2,7 +2,76 @@
 
 #[test]
 fn test_loop_detection() {
-    // Tests will ensure logic loops are caught
+    use ArcFlow::core::graph::{Graph, NodeData};
+    use ArcFlow::export::walker::{validate_narrative_graph, CycleClassification};
+    use eframe::egui::Pos2;
+
+    // 1. Valid acyclic graph
+    let graph = Graph::default_demo_graph();
+    let report = validate_narrative_graph(&graph);
+    assert!(report.is_valid, "Acyclic demo graph must be valid");
+    assert_eq!(report.cycles.len(), 0);
+
+    // 2. Infinite trap: Node 0 -> Node 1 -> Node 0 (no condition exit)
+    let mut trap_graph = Graph::default_demo_graph();
+    trap_graph.connect(1, 1, 0, 0); // Node 1 output -> Node 0 input
+    let trap_report = validate_narrative_graph(&trap_graph);
+    assert!(!trap_report.is_valid, "Trap graph must be flagged as invalid");
+    assert!(trap_report.has_infinite_traps());
+    assert!(trap_report.cycles.iter().any(|c| matches!(c, CycleClassification::InfiniteTrap(_))));
+
+    // 3. Intentional branching loop: Node 0 -> Condition (Node 2)
+    // Condition TRUE (port 1) -> Node 1 -> Node 0
+    // Condition FALSE (port 2) -> Node 3 (Exit)
+    let mut branch_graph = Graph::new();
+    let n0 = branch_graph.add_node(
+        NodeData::Dialogue {
+            speaker: "Guard".to_string(),
+            text: "Halt! Who goes there?".to_string(),
+            audio_key: "".to_string(),
+            loc_key: "".to_string(),
+            notes: "".to_string(),
+        },
+        Pos2::new(100.0, 100.0),
+    );
+    let n_cond = branch_graph.add_node(
+        NodeData::Condition {
+            variable: "has_pass".to_string(),
+            operator: "==".to_string(),
+            value: "true".to_string(),
+        },
+        Pos2::new(400.0, 100.0),
+    );
+    let n_loop = branch_graph.add_node(
+        NodeData::Dialogue {
+            speaker: "Player".to_string(),
+            text: "Let me check my pockets again...".to_string(),
+            audio_key: "".to_string(),
+            loc_key: "".to_string(),
+            notes: "".to_string(),
+        },
+        Pos2::new(400.0, 300.0),
+    );
+    let n_exit = branch_graph.add_node(
+        NodeData::Dialogue {
+            speaker: "Guard".to_string(),
+            text: "You may pass.".to_string(),
+            audio_key: "".to_string(),
+            loc_key: "".to_string(),
+            notes: "".to_string(),
+        },
+        Pos2::new(700.0, 100.0),
+    );
+
+    branch_graph.connect(n0, 1, n_cond, 0); // Guard -> Condition
+    branch_graph.connect(n_cond, 2, n_loop, 0); // FALSE -> Check pockets
+    branch_graph.connect(n_loop, 1, n0, 0); // Check pockets -> Guard (Loop back!)
+    branch_graph.connect(n_cond, 1, n_exit, 0); // TRUE -> Pass (Exit!)
+
+    let branch_report = validate_narrative_graph(&branch_graph);
+    assert!(branch_report.is_valid, "Branching loop with exit must be valid");
+    assert!(!branch_report.has_infinite_traps());
+    assert!(branch_report.cycles.iter().any(|c| matches!(c, CycleClassification::BranchingLoop(_))));
 }
 
 #[test]
