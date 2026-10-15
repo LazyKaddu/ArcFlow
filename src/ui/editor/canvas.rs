@@ -110,7 +110,6 @@ pub struct CanvasInteraction {
 pub fn handle_canvas_navigation(
     ui: &mut Ui,
     state: &mut CanvasState,
-    allow_left_drag: bool,
     allow_secondary_pan: bool,
 ) -> CanvasInteraction {
     let rect = ui.available_rect_before_wrap();
@@ -127,14 +126,13 @@ pub fn handle_canvas_navigation(
         }
     }
 
-    // 2. Camera panning physics
+    // 2. Camera panning physics: Middle-mouse drag, Space + drag, or Right-drag on empty background
     let middle_down = ui.input(|i| i.pointer.button_down(egui::PointerButton::Middle));
     let secondary_down = ui.input(|i| i.pointer.button_down(egui::PointerButton::Secondary));
     let space_down = ui.input(|i| i.key_down(egui::Key::Space));
-    let primary_drag = allow_left_drag && response.dragged_by(egui::PointerButton::Primary);
     let secondary_drag = allow_secondary_pan && secondary_down;
 
-    if (middle_down || secondary_drag || space_down || primary_drag) && (response.hovered() || response.dragged()) {
+    if (middle_down || secondary_drag || space_down) && (response.hovered() || response.dragged()) {
         let drag_delta = ui.input(|i| i.pointer.delta());
         if drag_delta != Vec2::ZERO {
             state.pan += state.screen_to_world_vec(drag_delta);

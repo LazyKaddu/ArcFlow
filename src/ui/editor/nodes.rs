@@ -26,6 +26,7 @@ pub fn render_nodes(
     ui: &mut Ui,
     state: &CanvasState,
     nodes: &mut [EditorNode],
+    node_drag: &mut Option<usize>,
     is_cable_dragging: bool,
 ) -> NodeInteraction {
     let mut interaction = NodeInteraction::default();
@@ -39,16 +40,22 @@ pub fn render_nodes(
     let zoom = state.zoom;
 
     // Check if cursor is hovering over any node
+    let mut hovered_node_id: Option<usize> = None;
     if let Some(pos) = pointer_pos {
-        interaction.is_hovering_any_node = nodes.iter().any(|n| {
-            let screen_rect = state.world_to_screen_rect(Rect::from_min_size(n.pos, n.size));
-            if n.data.is_anchor() {
-                screen_rect.expand(6.0_f32 * zoom).contains(pos)
+        for node in nodes.iter() {
+            let screen_rect = state.world_to_screen_rect(Rect::from_min_size(node.pos, node.size));
+            let hit = if node.data.is_anchor() {
+                screen_rect.expand(10.0_f32 * zoom).contains(pos)
             } else {
                 screen_rect.contains(pos)
+            };
+            if hit {
+                hovered_node_id = Some(node.id);
+                break;
             }
-        });
+        }
     }
+    interaction.is_hovering_any_node = hovered_node_id.is_some();
 
     // 1. Port hit testing and Left-Click cable drag initiation
     for node in nodes.iter() {
@@ -72,32 +79,24 @@ pub fn render_nodes(
         }
     }
 
-    // 2. Right-Click node dragging state management
-    let mut active_right_drag: Option<usize> = ui.data(|d| d.get_temp(egui::Id::new("right_drag_node")));
-
-    if secondary_pressed {
-        if let Some(pos) = pointer_pos {
-            for node in nodes.iter() {
-                let screen_rect = state.world_to_screen_rect(Rect::from_min_size(node.pos, node.size));
-                let hit = if node.data.is_anchor() {
-                    screen_rect.expand(6.0_f32 * zoom).contains(pos)
-                } else {
-                    screen_rect.contains(pos)
-                };
-                if hit {
-                    active_right_drag = Some(node.id);
-                    break;
-                }
-            }
+    // 2. Direct Left-Click node selection (if not on a port and not dragging a cable)
+    if primary_clicked && interaction.hovered_port.is_none() && !is_cable_dragging {
+        if let Some(id) = hovered_node_id {
+            interaction.clicked_node = Some(id);
         }
-    } else if !secondary_down {
-        active_right_drag = None;
     }
 
-    ui.data_mut(|d| d.insert_temp(egui::Id::new("right_drag_node"), active_right_drag));
+    // 3. Right-Click node dragging state management
+    if secondary_pressed {
+        if let Some(id) = hovered_node_id {
+            *node_drag = Some(id);
+        }
+    } else if !secondary_down {
+        *node_drag = None;
+    }
 
     // Translate node(s) if right-click dragging is active
-    if let Some(drag_node_id) = active_right_drag {
+    if let Some(drag_node_id) = *node_drag {
         if secondary_down && drag_delta != Vec2::ZERO {
             let move_world = state.screen_to_world_vec(drag_delta);
             let is_drag_node_selected = nodes.iter().any(|n| n.id == drag_node_id && n.selected);
@@ -118,7 +117,7 @@ pub fn render_nodes(
         }
     }
 
-    // 3. Render each node card and its contents
+    // 4. Render each node card and its contents
     for node in nodes.iter_mut() {
         let screen_rect = state.world_to_screen_rect(Rect::from_min_size(node.pos, node.size));
 
@@ -154,6 +153,7 @@ pub fn render_nodes(
                     state,
                     &mut interaction,
                     primary_clicked,
+                    secondary_down,
                     is_cable_dragging,
                 );
             }
@@ -175,6 +175,7 @@ pub fn render_nodes(
                     state,
                     &mut interaction,
                     primary_clicked,
+                    secondary_down,
                     is_cable_dragging,
                 );
             }
@@ -261,6 +262,7 @@ fn render_dialogue_node(
     state: &CanvasState,
     interaction: &mut NodeInteraction,
     primary_clicked: bool,
+    secondary_down: bool,
     is_cable_dragging: bool,
 ) {
     let zoom = state.zoom;
@@ -315,13 +317,16 @@ fn render_dialogue_node(
         Color32::from_rgb(140, 140, 150),
     );
 
-    // Left-click on card selects this node
     let card_response = ui.allocate_rect(screen_rect, Sense::click());
     let mut is_editing = false;
 
     // Use a child Ui for in-card editable content
     let content_rect = screen_rect.shrink(8.0_f32 * zoom);
     let mut child_ui = ui.child_ui(content_rect, *ui.layout());
+    // Disable text input child_ui during right-click so right-drag never interacts with text fields
+    if secondary_down {
+        child_ui.set_enabled(false);
+    }
 
     // 1. Header: DIALOGUE : <Speaker Name>
     child_ui.horizontal(|ui| {
@@ -385,7 +390,7 @@ fn render_dialogue_node(
         }
     });
 
-    // Left-click on card selects this node
+    // Fallback card click selection
     if (card_response.clicked() || (primary_clicked && card_response.hovered()))
         && !is_editing
         && interaction.hovered_port.is_none()
@@ -422,6 +427,7 @@ fn render_condition_node(
     state: &CanvasState,
     interaction: &mut NodeInteraction,
     primary_clicked: bool,
+    secondary_down: bool,
     is_cable_dragging: bool,
 ) {
     let zoom = state.zoom;
@@ -468,6 +474,11 @@ fn render_condition_node(
 
     // Render the editable expression inputs inside expr_rect
     let mut child_ui = ui.child_ui(expr_rect, *ui.layout());
+    // Disable expression inputs child_ui during right-click so right-drag never interacts with text fields
+    if secondary_down {
+        child_ui.set_enabled(false);
+    }
+
     child_ui.vertical_centered(|ui| {
         let var_edit = TextEdit::singleline(variable)
             .font(FontId::monospace((10.0_f32 * zoom).clamp(8.0_f32, 12.5_f32)))
@@ -532,7 +543,7 @@ fn render_condition_node(
         curve_stroke,
     ));
 
-    // Left-click on card selects this node
+    // Fallback card click selection
     if (card_response.clicked() || (primary_clicked && card_response.hovered()))
         && !is_editing
         && interaction.hovered_port.is_none()
@@ -566,7 +577,7 @@ fn render_anchor_node(
 
     let painter = ui.painter().clone();
 
-    let pin_response = ui.allocate_rect(screen_rect.expand(4.0_f32 * zoom), Sense::click());
+    let pin_response = ui.allocate_rect(screen_rect.expand(10.0_f32 * zoom), Sense::click());
     let is_hovered = pin_response.hovered();
 
     if (pin_response.clicked() || (primary_clicked && is_hovered))
