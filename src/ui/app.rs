@@ -13,8 +13,13 @@ pub struct ArcFlowApp {
     state: AppState,
     canvas_state: crate::ui::editor::canvas::CanvasState,
     graph: crate::core::graph::Graph,
+    blackboard: crate::core::blackboard::Blackboard,
+    rail_state: crate::ui::editor::rail::RailState,
+    inspector_state: crate::ui::editor::inspector::InspectorState,
     cable_drag: Option<crate::ui::editor::cables::CableDragState>,
     selected_connection: Option<usize>,
+    search_query: String,
+    is_dirty: bool,
 }
 
 impl Default for ArcFlowApp {
@@ -23,8 +28,13 @@ impl Default for ArcFlowApp {
             state: AppState::Splash,
             canvas_state: crate::ui::editor::canvas::CanvasState::default(),
             graph: crate::core::graph::Graph::default_demo_graph(),
+            blackboard: crate::core::blackboard::Blackboard::default_demo(),
+            rail_state: crate::ui::editor::rail::RailState::default(),
+            inspector_state: crate::ui::editor::inspector::InspectorState::default(),
             cable_drag: None,
             selected_connection: None,
+            search_query: String::new(),
+            is_dirty: false,
         }
     }
 }
@@ -63,79 +73,71 @@ impl eframe::App for ArcFlowApp {
 }
 
 impl ArcFlowApp {
-    fn render_editor(&mut self, ctx: &egui::Context, project_name: String) {
-        // Top toolbar
-        egui::TopBottomPanel::top("top_panel").exact_height(40.0).show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.add_space(8.0);
-                if ui.button("← Back to Dashboard").clicked() {
-                    self.state = AppState::Dashboard;
+    fn render_editor(&mut self, ctx: &egui::Context, mut project_name: String) {
+        // 1. Left Navigation Rail & 280px Slide-out Drawer
+        crate::ui::editor::rail::render_navigation_rail(
+            ctx,
+            &mut self.rail_state,
+            &mut self.blackboard,
+        );
+
+        // 2. Floating Island Toolbar (Upper-Center Capsule)
+        let toolbar_actions = crate::ui::editor::toolbar::render_floating_toolbar(
+            ctx,
+            &mut project_name,
+            &mut self.search_query,
+            self.is_dirty,
+            false, // undo available
+            false, // redo available
+        );
+
+        if toolbar_actions.back_clicked {
+            self.state = AppState::Dashboard;
+        }
+        if toolbar_actions.save_clicked {
+            self.is_dirty = false;
+        }
+        if toolbar_actions.search_query_changed && !self.search_query.trim().is_empty() {
+            let query = self.search_query.trim().to_lowercase();
+            for node in &mut self.graph.nodes {
+                let matches = match &node.data {
+                    crate::core::graph::NodeData::Dialogue { speaker, text, .. } => {
+                        speaker.to_lowercase().contains(&query) || text.to_lowercase().contains(&query)
+                    }
+                    crate::core::graph::NodeData::Condition { variable, value, .. } => {
+                        variable.to_lowercase().contains(&query) || value.to_lowercase().contains(&query)
+                    }
+                    crate::core::graph::NodeData::Anchor => false,
+                };
+                if matches {
+                    node.selected = true;
                 }
-                ui.separator();
-                ui.label(egui::RichText::new(&project_name).strong());
-                ui.separator();
-                ui.label(
-                    egui::RichText::new(format!(
-                        "Zoom: {:.0}% | Pan: ({:.0}, {:.0}) | Nodes: {}",
-                        self.canvas_state.zoom * 100.0,
-                        self.canvas_state.pan.x,
-                        self.canvas_state.pan.y,
-                        self.graph.nodes.len()
-                    ))
-                    .color(egui::Color32::from_rgb(180, 180, 180)),
-                );
+            }
+        }
 
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("+ Add Anchor").clicked() {
-                        let center_screen = ui.ctx().screen_rect().center();
-                        let world_center = self.canvas_state.screen_to_world(center_screen);
-                        self.graph.add_node(crate::core::graph::NodeData::Anchor, world_center);
-                    }
-                    if ui.button("+ Add Condition").clicked() {
-                        let center_screen = ui.ctx().screen_rect().center();
-                        let world_center = self.canvas_state.screen_to_world(center_screen);
-                        self.graph.add_node(
-                            crate::core::graph::NodeData::Condition {
-                                variable: "quest_complete".to_string(),
-                                operator: "==".to_string(),
-                                value: "true".to_string(),
-                            },
-                            world_center,
-                        );
-                    }
-                    if ui.button("+ Add Dialogue").clicked() {
-                        let center_screen = ui.ctx().screen_rect().center();
-                        let world_center = self.canvas_state.screen_to_world(center_screen);
-                        self.graph.add_node(
-                            crate::core::graph::NodeData::Dialogue {
-                                speaker: "Narrator".to_string(),
-                                text: "The adventure begins here...".to_string(),
-                                audio_key: "Narrator001.wav".to_string(),
-                                loc_key: "LOC_NARRATOR_001".to_string(),
-                                notes: "".to_string(),
-                            },
-                            world_center,
-                        );
-                    }
-                });
-            });
-        });
+        // 3. Contextual Right Inspector Drawer
+        crate::ui::editor::inspector::render_inspector_drawer(
+            ctx,
+            &mut self.inspector_state,
+            &mut self.graph,
+            &mut self.blackboard,
+        );
 
-        // Viewport canvas fills the central area
+        // 4. Viewport canvas fills the central area
         egui::CentralPanel::default()
             .frame(egui::Frame::none().fill(egui::Color32::from_rgb(63, 63, 67)))
             .show(ctx, |ui| {
                 let is_cable_dragging = self.cable_drag.is_some();
                 let painter = ui.painter().clone();
 
-                // 1. Frustum-culled dot grid background
+                // 4.1 Frustum-culled dot grid background
                 crate::ui::editor::canvas::render_frustum_culled_dot_grid(
                     ui,
                     &painter,
                     &self.canvas_state,
                 );
 
-                // 2. Render committed cables (underneath node cards)
+                // 4.2 Render committed cables (underneath node cards)
                 let cable_interaction = crate::ui::editor::cables::render_cables(
                     ui,
                     &painter,
@@ -149,7 +151,7 @@ impl ArcFlowApp {
                     self.graph.clear_selection();
                 }
 
-                // 3. Render all nodes with in-card editing and slit-capsule pins
+                // 4.3 Render all nodes with in-card editing and slit-capsule pins
                 let node_interaction = crate::ui::editor::nodes::render_nodes(
                     ui,
                     &self.canvas_state,
@@ -170,7 +172,7 @@ impl ArcFlowApp {
                     }
                 }
 
-                // 4. Handle interactive cable dragging and ghost wire rendering
+                // 4.4 Handle interactive cable dragging and ghost wire rendering
                 crate::ui::editor::cables::handle_cable_dragging(
                     ui,
                     &painter,
@@ -181,11 +183,19 @@ impl ArcFlowApp {
                     node_interaction.hovered_port,
                 );
 
-                // 5. Handle camera navigation (panning & zooming)
+                // 4.5 Camera panning & zooming
+                let mouse_pos = ui.input(|i| i.pointer.hover_pos()).unwrap_or(egui::Pos2::ZERO);
+                let rail_occupied_w = if self.rail_state.is_open { 56.0 + self.rail_state.width } else { 56.0 };
+                let inspector_occupied_w = if self.inspector_state.is_open { self.inspector_state.width } else { 0.0 };
+                let screen_w = ctx.screen_rect().width();
+
+                let in_active_side_panels = mouse_pos.x <= rail_occupied_w || mouse_pos.x >= (screen_w - inspector_occupied_w);
+
                 let allow_left_drag = !node_interaction.is_dragging_node
                     && node_interaction.clicked_node.is_none()
                     && self.cable_drag.is_none()
-                    && cable_interaction.hovered_connection.is_none();
+                    && cable_interaction.hovered_connection.is_none()
+                    && !in_active_side_panels;
 
                 let canvas_interaction = crate::ui::editor::canvas::handle_canvas_navigation(
                     ui,
@@ -197,6 +207,7 @@ impl ArcFlowApp {
                 if canvas_interaction.response.clicked()
                     && node_interaction.clicked_node.is_none()
                     && cable_interaction.clicked_connection.is_none()
+                    && !in_active_side_panels
                 {
                     self.graph.clear_selection();
                     self.selected_connection = None;
