@@ -480,6 +480,121 @@ fn test_ui_shell_states() {
     assert_eq!(inspector.width, 290.0);
 }
 
+#[test]
+fn test_magnetic_port_snapping() {
+    use ArcFlow::core::graph::Graph;
+    use ArcFlow::ui::editor::cables::{find_snapped_target_port, CableDragState};
+    use ArcFlow::ui::editor::canvas::CanvasState;
+    use eframe::egui::{pos2, vec2};
+
+    let graph = Graph::default_demo_graph();
+    let state = CanvasState::new(vec2(0.0, 0.0), 1.0);
+
+    // Node 0: Dialogue, Out port is port 1
+    let drag_from_n0_out = CableDragState {
+        source_node: 0,
+        source_port: 1,
+        is_output: true,
+    };
+
+    // Node 1: Dialogue, In port is port 0 (at world pos pos + (0, 50))
+    let n1 = graph.get_node(1).unwrap();
+    let n1_in_world = n1.port_world_pos(0).unwrap();
+    let n1_in_screen = state.world_to_screen(n1_in_world);
+
+    // Cursor 15px away from Node 1's In port (within 28px snap radius)
+    let near_cursor = pos2(n1_in_screen.x - 12.0, n1_in_screen.y + 8.0);
+    let snapped = find_snapped_target_port(near_cursor, &drag_from_n0_out, &graph, &state);
+    assert!(snapped.is_some(), "Should magnetically snap to nearby In port");
+    let (target_node, target_port, screen_pos) = snapped.unwrap();
+    assert_eq!(target_node, 1);
+    assert_eq!(target_port, 0);
+    assert_eq!(screen_pos, n1_in_screen);
+
+    // Cursor far away (e.g. 100px) should NOT snap
+    let far_cursor = pos2(n1_in_screen.x + 100.0, n1_in_screen.y + 100.0);
+    let far_snap = find_snapped_target_port(far_cursor, &drag_from_n0_out, &graph, &state);
+    assert!(far_snap.is_none(), "Should not snap when cursor is far");
+
+    // Output port should NOT snap to another Output port (e.g. Node 1's Out port)
+    let n1_out_screen = state.world_to_screen(n1.port_world_pos(1).unwrap());
+    let near_out_cursor = pos2(n1_out_screen.x + 5.0, n1_out_screen.y);
+    let out_to_out = find_snapped_target_port(near_out_cursor, &drag_from_n0_out, &graph, &state);
+    assert!(out_to_out.is_none(), "Output cable must not snap to another Output port");
+
+    // Must NOT snap to ports on the same node (no self-loops)
+    let n0_in_screen = state.world_to_screen(graph.get_node(0).unwrap().port_world_pos(0).unwrap());
+    let self_cursor = pos2(n0_in_screen.x, n0_in_screen.y);
+    let self_snap = find_snapped_target_port(self_cursor, &drag_from_n0_out, &graph, &state);
+    assert!(self_snap.is_none(), "Must not snap to ports on the source node");
+}
+
+#[test]
+fn test_branch_and_anchor_cable_connections() {
+    use ArcFlow::core::graph::{Graph, NodeData, PortType};
+    use eframe::egui::pos2;
+
+    let mut graph = Graph::default_demo_graph();
+
+    // Node 2 is Condition Node with:
+    // Port 0: In
+    // Port 1: TRUE (Output)
+    // Port 2: FALSE (Output)
+    let n2 = graph.get_node(2).unwrap();
+    assert_eq!(n2.ports[1].name, "TRUE");
+    assert_eq!(n2.ports[1].port_type, PortType::Output);
+    assert_eq!(n2.ports[2].name, "FALSE");
+    assert_eq!(n2.ports[2].port_type, PortType::Output);
+
+    // 1. Connect Dialogue Node 0 Out -> Condition Node 2 In
+    let c1 = graph.connect(0, 1, 2, 0);
+    assert!(c1, "Should connect Dialogue Out to Condition In");
+
+    // 2. Connect Condition Node 2 TRUE Branch -> Dialogue Node 1 In
+    let c2 = graph.connect(2, 1, 1, 0);
+    assert!(c2, "Should connect Condition TRUE branch to Dialogue In");
+
+    // 3. Add an Anchor node and connect Condition Node 2 FALSE Branch -> Anchor In
+    let anchor_id = graph.add_node(NodeData::Anchor, pos2(450.0, 350.0));
+    let c3 = graph.connect(2, 2, anchor_id, 0);
+    assert!(c3, "Should connect Condition FALSE branch to Anchor In");
+
+    // 4. Connect Anchor Out -> Dialogue Node 0 In (loopback via anchor waypoint)
+    let c4 = graph.connect(anchor_id, 1, 0, 0);
+    assert!(c4, "Should connect Anchor Out to Dialogue In");
+
+    // Verify all 4 new connections exist alongside initial connection (total 5)
+    assert_eq!(graph.connections.len(), 5);
+}
+
+#[test]
+fn test_port_hit_rect_scaling() {
+    use ArcFlow::core::graph::PortType;
+    use ArcFlow::ui::editor::nodes::port_hit_rect;
+    use eframe::egui::pos2;
+
+    let center = pos2(200.0, 150.0);
+
+    // Zoom 1.0
+    let rect_1 = port_hit_rect(center, PortType::Output, 1.0);
+    assert!(rect_1.contains(center));
+    assert!(rect_1.width() >= 24.0);
+    assert!(rect_1.height() >= 32.0);
+
+    // Zoom 0.5 (must maintain minimum comfortable hitbox)
+    let rect_half = port_hit_rect(center, PortType::Input, 0.5);
+    assert!(rect_half.contains(center));
+    assert!(rect_half.width() >= 24.0);
+    assert!(rect_half.height() >= 32.0);
+
+    // Zoom 2.0 (scales up for zoomed-in precision)
+    let rect_2 = port_hit_rect(center, PortType::Output, 2.0);
+    assert!(rect_2.contains(center));
+    assert!(rect_2.width() >= rect_1.width());
+    assert!(rect_2.height() >= rect_1.height());
+}
+
+
 
 
 

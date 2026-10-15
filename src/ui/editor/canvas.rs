@@ -111,6 +111,7 @@ pub fn handle_canvas_navigation(
     ui: &mut Ui,
     state: &mut CanvasState,
     allow_left_drag: bool,
+    allow_secondary_pan: bool,
 ) -> CanvasInteraction {
     let rect = ui.available_rect_before_wrap();
     let response = ui.allocate_rect(rect, Sense::click_and_drag());
@@ -131,8 +132,9 @@ pub fn handle_canvas_navigation(
     let secondary_down = ui.input(|i| i.pointer.button_down(egui::PointerButton::Secondary));
     let space_down = ui.input(|i| i.key_down(egui::Key::Space));
     let primary_drag = allow_left_drag && response.dragged_by(egui::PointerButton::Primary);
+    let secondary_drag = allow_secondary_pan && secondary_down;
 
-    if (middle_down || secondary_down || space_down || primary_drag) && (response.hovered() || response.dragged()) {
+    if (middle_down || secondary_drag || space_down || primary_drag) && (response.hovered() || response.dragged()) {
         let drag_delta = ui.input(|i| i.pointer.delta());
         if drag_delta != Vec2::ZERO {
             state.pan += state.screen_to_world_vec(drag_delta);

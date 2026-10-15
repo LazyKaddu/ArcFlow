@@ -204,16 +204,31 @@ impl ArcFlowApp {
                     && cable_interaction.hovered_connection.is_none()
                     && !in_active_side_panels;
 
+                let allow_secondary_pan = !node_interaction.is_dragging_node
+                    && !node_interaction.is_hovering_any_node
+                    && !in_active_side_panels;
+
                 let canvas_interaction = crate::ui::editor::canvas::handle_canvas_navigation(
                     ui,
                     &mut self.canvas_state,
                     allow_left_drag,
+                    allow_secondary_pan,
                 );
+
+                // Dynamic contextual cursor icon
+                if self.cable_drag.is_some() {
+                    ctx.set_cursor_icon(egui::CursorIcon::Crosshair);
+                } else if node_interaction.is_dragging_node {
+                    ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
+                } else if node_interaction.hovered_port.is_some() {
+                    ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
+                }
 
                 // Deselect everything when empty canvas background is clicked
                 if canvas_interaction.response.clicked()
                     && node_interaction.clicked_node.is_none()
                     && cable_interaction.clicked_connection.is_none()
+                    && self.cable_drag.is_none()
                     && !in_active_side_panels
                 {
                     self.graph.clear_selection();
