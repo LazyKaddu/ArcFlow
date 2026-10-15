@@ -173,4 +173,83 @@ fn test_frustum_culling_bounds() {
     assert!((screen_rect.max.y - round_trip_rect.max.y).abs() < 1e-3);
 }
 
+#[test]
+fn test_default_demo_graph_structure() {
+    use ArcFlow::core::graph::{Graph, NodeData, PortType};
+
+    let graph = Graph::default_demo_graph();
+
+    // Must contain 3 canonical nodes matching reference mockup
+    assert_eq!(graph.nodes.len(), 3);
+    assert_eq!(graph.connections.len(), 1);
+
+    // Node 0: Dialogue (King Aurther Martin)
+    let n0 = &graph.nodes[0];
+    assert_eq!(n0.id, 0);
+    assert_eq!(n0.ports.len(), 2);
+    assert_eq!(n0.ports[0].port_type, PortType::Input);
+    assert_eq!(n0.ports[1].port_type, PortType::Output);
+    match &n0.data {
+        NodeData::Dialogue { speaker, .. } => assert_eq!(speaker, "King Aurther Martin"),
+        _ => panic!("Node 0 must be Dialogue"),
+    }
+
+    // Node 1: Dialogue (Mage)
+    let n1 = &graph.nodes[1];
+    assert_eq!(n1.id, 1);
+    match &n1.data {
+        NodeData::Dialogue { speaker, .. } => assert_eq!(speaker, "Mage"),
+        _ => panic!("Node 1 must be Dialogue"),
+    }
+
+    // Node 2: Condition with 3 ports (1 In, 2 Out: TRUE and FALSE)
+    let n2 = &graph.nodes[2];
+    assert_eq!(n2.id, 2);
+    assert_eq!(n2.ports.len(), 3);
+    assert_eq!(n2.ports[0].port_type, PortType::Input);
+    assert_eq!(n2.ports[1].port_type, PortType::Output);
+    assert_eq!(n2.ports[1].name, "TRUE");
+    assert_eq!(n2.ports[2].port_type, PortType::Output);
+    assert_eq!(n2.ports[2].name, "FALSE");
+    match &n2.data {
+        NodeData::Condition { variable, operator, value } => {
+            assert_eq!(variable, "has_sword");
+            assert_eq!(operator, "==");
+            assert_eq!(value, "true");
+        }
+        _ => panic!("Node 2 must be Condition"),
+    }
+
+    // Initial connection: Node 0 port 1 -> Node 1 port 0
+    let conn = &graph.connections[0];
+    assert_eq!(conn.from_node, 0);
+    assert_eq!(conn.from_port, 1);
+    assert_eq!(conn.to_node, 1);
+    assert_eq!(conn.to_port, 0);
+}
+
+#[test]
+fn test_anchor_node_cable_split() {
+    use ArcFlow::core::graph::{Graph, NodeData};
+    use eframe::egui::Pos2;
+
+    let mut graph = Graph::default_demo_graph();
+    assert_eq!(graph.connections.len(), 1);
+
+    // Split connection 0 with an Anchor node
+    let split_pos = Pos2::new(400.0, 250.0);
+    let anchor_id = graph.split_cable_with_anchor(0, split_pos).expect("Split failed");
+
+    // Must have added an Anchor node
+    assert_eq!(graph.nodes.len(), 4);
+    let anchor_node = graph.get_node(anchor_id).expect("Anchor node missing");
+    assert_eq!(anchor_node.data, NodeData::Anchor);
+
+    // Connection must have been split into 2: Node 0 -> Anchor, and Anchor -> Node 1
+    assert_eq!(graph.connections.len(), 2);
+    assert!(graph.connections.iter().any(|c| c.from_node == 0 && c.to_node == anchor_id));
+    assert!(graph.connections.iter().any(|c| c.from_node == anchor_id && c.to_node == 1));
+}
+
+
 

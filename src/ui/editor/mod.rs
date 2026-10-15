@@ -2,4 +2,6 @@
 
 pub mod canvas;
 pub mod dialogs;
+pub mod nodes;
 pub mod sidebar;
+
