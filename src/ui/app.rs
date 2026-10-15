@@ -13,6 +13,8 @@ pub struct ArcFlowApp {
     state: AppState,
     canvas_state: crate::ui::editor::canvas::CanvasState,
     graph: crate::core::graph::Graph,
+    cable_drag: Option<crate::ui::editor::cables::CableDragState>,
+    selected_connection: Option<usize>,
 }
 
 impl Default for ArcFlowApp {
@@ -21,6 +23,8 @@ impl Default for ArcFlowApp {
             state: AppState::Splash,
             canvas_state: crate::ui::editor::canvas::CanvasState::default(),
             graph: crate::core::graph::Graph::default_demo_graph(),
+            cable_drag: None,
+            selected_connection: None,
         }
     }
 }
@@ -121,24 +125,41 @@ impl ArcFlowApp {
         egui::CentralPanel::default()
             .frame(egui::Frame::none().fill(egui::Color32::from_rgb(63, 63, 67)))
             .show(ctx, |ui| {
-                // 1. Frustum-culled dot grid background
+                let is_cable_dragging = self.cable_drag.is_some();
                 let painter = ui.painter().clone();
+
+                // 1. Frustum-culled dot grid background
                 crate::ui::editor::canvas::render_frustum_culled_dot_grid(
                     ui,
                     &painter,
                     &self.canvas_state,
                 );
 
-                // 2. Render all nodes with in-card editing and slit-capsule pins
-                let interaction = crate::ui::editor::nodes::render_nodes(
+                // 2. Render committed cables (underneath node cards)
+                let cable_interaction = crate::ui::editor::cables::render_cables(
+                    ui,
+                    &painter,
+                    &mut self.graph,
+                    &self.canvas_state,
+                    self.selected_connection,
+                );
+
+                if let Some(conn_idx) = cable_interaction.clicked_connection {
+                    self.selected_connection = Some(conn_idx);
+                    self.graph.clear_selection();
+                }
+
+                // 3. Render all nodes with in-card editing and slit-capsule pins
+                let node_interaction = crate::ui::editor::nodes::render_nodes(
                     ui,
                     &self.canvas_state,
                     &mut self.graph.nodes,
-                    false,
+                    is_cable_dragging,
                 );
 
                 // Handle node selection
-                if let Some(clicked_id) = interaction.clicked_node {
+                if let Some(clicked_id) = node_interaction.clicked_node {
+                    self.selected_connection = None;
                     let shift = ui.input(|i| i.modifiers.shift);
                     for node in &mut self.graph.nodes {
                         if node.id == clicked_id {
@@ -149,17 +170,36 @@ impl ArcFlowApp {
                     }
                 }
 
-                // 3. Handle camera navigation (panning & zooming)
-                let allow_left_drag = !interaction.is_dragging_node && interaction.clicked_node.is_none();
+                // 4. Handle interactive cable dragging and ghost wire rendering
+                crate::ui::editor::cables::handle_cable_dragging(
+                    ui,
+                    &painter,
+                    &mut self.graph,
+                    &self.canvas_state,
+                    &mut self.cable_drag,
+                    node_interaction.drag_started_port,
+                    node_interaction.hovered_port,
+                );
+
+                // 5. Handle camera navigation (panning & zooming)
+                let allow_left_drag = !node_interaction.is_dragging_node
+                    && node_interaction.clicked_node.is_none()
+                    && self.cable_drag.is_none()
+                    && cable_interaction.hovered_connection.is_none();
+
                 let canvas_interaction = crate::ui::editor::canvas::handle_canvas_navigation(
                     ui,
                     &mut self.canvas_state,
                     allow_left_drag,
                 );
 
-                // Deselect nodes when background is clicked
-                if canvas_interaction.response.clicked() && interaction.clicked_node.is_none() {
+                // Deselect everything when empty canvas background is clicked
+                if canvas_interaction.response.clicked()
+                    && node_interaction.clicked_node.is_none()
+                    && cable_interaction.clicked_connection.is_none()
+                {
                     self.graph.clear_selection();
+                    self.selected_connection = None;
                 }
             });
     }

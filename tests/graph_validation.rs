@@ -251,5 +251,81 @@ fn test_anchor_node_cable_split() {
     assert!(graph.connections.iter().any(|c| c.from_node == anchor_id && c.to_node == 1));
 }
 
+#[test]
+fn test_bezier_evaluation_and_control_points() {
+    use ArcFlow::ui::editor::cables::{calculate_bezier_control_points, eval_cubic_bezier};
+    use eframe::egui::Pos2;
+
+    let p0 = Pos2::new(100.0, 100.0);
+    let p3 = Pos2::new(500.0, 300.0);
+    let (cp1, cp2) = calculate_bezier_control_points(p0, p3, true, 1.0);
+
+    // Endpoint invariants
+    let start = eval_cubic_bezier(p0, cp1, cp2, p3, 0.0);
+    assert!((start.x - p0.x).abs() < 1e-4);
+    assert!((start.y - p0.y).abs() < 1e-4);
+
+    let end = eval_cubic_bezier(p0, cp1, cp2, p3, 1.0);
+    assert!((end.x - p3.x).abs() < 1e-4);
+    assert!((end.y - p3.y).abs() < 1e-4);
+
+    // Tangent horizontal control points
+    assert_eq!(cp1.y, p0.y, "CP1 must share Y coordinate with P0");
+    assert_eq!(cp2.y, p3.y, "CP2 must share Y coordinate with P3");
+    assert!(cp1.x > p0.x, "CP1 must extend rightward from source");
+    assert!(cp2.x < p3.x, "CP2 must extend leftward from target");
+}
+
+#[test]
+fn test_point_to_bezier_distance_detection() {
+    use ArcFlow::ui::editor::cables::{
+        calculate_bezier_control_points, distance_point_to_cubic_bezier, eval_cubic_bezier,
+    };
+    use eframe::egui::Pos2;
+
+    let p0 = Pos2::new(200.0, 150.0);
+    let p3 = Pos2::new(700.0, 450.0);
+    let (cp1, cp2) = calculate_bezier_control_points(p0, p3, true, 1.0);
+
+    // Point exactly on curve at t = 0.5 must have distance < 0.5px
+    let midpoint = eval_cubic_bezier(p0, cp1, cp2, p3, 0.5);
+    let dist_on_curve = distance_point_to_cubic_bezier(midpoint, p0, cp1, cp2, p3);
+    assert!(
+        dist_on_curve < 0.5,
+        "Distance to point on curve must be negligible: got {}",
+        dist_on_curve
+    );
+
+    // Point far away (e.g. at (0, 0)) must not be registered as close
+    let far_point = Pos2::new(0.0, 0.0);
+    let dist_far = distance_point_to_cubic_bezier(far_point, p0, cp1, cp2, p3);
+    assert!(dist_far > 150.0, "Far point must have substantial distance: got {}", dist_far);
+}
+
+#[test]
+fn test_cable_connection_invariants() {
+    use ArcFlow::core::graph::Graph;
+
+    let mut graph = Graph::default_demo_graph();
+
+    // Prevent duplicate connection
+    let added_duplicate = graph.connect(0, 1, 1, 0);
+    assert!(!added_duplicate, "Graph must disallow duplicate identical connections");
+
+    // Prevent self-connection on same node
+    let self_conn = graph.connect(0, 1, 0, 0);
+    assert!(!self_conn, "Graph must disallow self-connecting cables on the same node");
+
+    // Allow new valid connection
+    let valid_conn = graph.connect(2, 1, 1, 0);
+    assert!(valid_conn, "Graph must allow valid new connections");
+    assert_eq!(graph.connections.len(), 2);
+
+    // Disconnect
+    graph.disconnect(2, 1, 1, 0);
+    assert_eq!(graph.connections.len(), 1);
+}
+
+
 
 
