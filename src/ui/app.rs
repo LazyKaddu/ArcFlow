@@ -17,6 +17,7 @@ pub struct ArcFlowApp {
     rail_state: crate::ui::editor::rail::RailState,
     inspector_state: crate::ui::editor::inspector::InspectorState,
     cable_drag: Option<crate::ui::editor::cables::CableDragState>,
+    node_drag: Option<usize>,
     selected_connection: Option<usize>,
     search_query: String,
     is_dirty: bool,
@@ -34,6 +35,7 @@ impl Default for ArcFlowApp {
             rail_state: crate::ui::editor::rail::RailState::default(),
             inspector_state: crate::ui::editor::inspector::InspectorState::default(),
             cable_drag: None,
+            node_drag: None,
             selected_connection: None,
             search_query: String::new(),
             is_dirty: false,
@@ -134,7 +136,6 @@ impl ArcFlowApp {
         egui::CentralPanel::default()
             .frame(egui::Frame::none().fill(egui::Color32::from_rgb(63, 63, 67)))
             .show(ctx, |ui| {
-                let is_cable_dragging = self.cable_drag.is_some();
                 let painter = ui.painter().clone();
 
                 // 4.1 Frustum-culled dot grid background
@@ -159,10 +160,12 @@ impl ArcFlowApp {
                 }
 
                 // 4.3 Render all nodes with in-card editing and slit-capsule pins
+                let is_cable_dragging = self.cable_drag.is_some();
                 let node_interaction = crate::ui::editor::nodes::render_nodes(
                     ui,
                     &self.canvas_state,
                     &mut self.graph.nodes,
+                    &mut self.node_drag,
                     is_cable_dragging,
                 );
 
@@ -198,22 +201,32 @@ impl ArcFlowApp {
 
                 let in_active_side_panels = mouse_pos.x <= rail_occupied_w || mouse_pos.x >= (screen_w - inspector_occupied_w);
 
-                let allow_left_drag = !node_interaction.is_dragging_node
-                    && node_interaction.clicked_node.is_none()
-                    && self.cable_drag.is_none()
-                    && cable_interaction.hovered_connection.is_none()
+                let allow_secondary_pan = self.node_drag.is_none()
+                    && !node_interaction.is_dragging_node
+                    && !node_interaction.is_hovering_any_node
                     && !in_active_side_panels;
 
                 let canvas_interaction = crate::ui::editor::canvas::handle_canvas_navigation(
                     ui,
                     &mut self.canvas_state,
-                    allow_left_drag,
+                    allow_secondary_pan,
                 );
 
-                // Deselect everything when empty canvas background is clicked
+                // Dynamic contextual cursor icon
+                if self.cable_drag.is_some() {
+                    ctx.set_cursor_icon(egui::CursorIcon::Crosshair);
+                } else if node_interaction.is_dragging_node || self.node_drag.is_some() {
+                    ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
+                } else if node_interaction.hovered_port.is_some() {
+                    ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
+                }
+
+                // Deselect everything ONLY when empty canvas background is clicked
+                let clicked_on_any_node = node_interaction.is_hovering_any_node || node_interaction.clicked_node.is_some();
                 if canvas_interaction.response.clicked()
-                    && node_interaction.clicked_node.is_none()
+                    && !clicked_on_any_node
                     && cable_interaction.clicked_connection.is_none()
+                    && self.cable_drag.is_none()
                     && !in_active_side_panels
                 {
                     self.graph.clear_selection();

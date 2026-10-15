@@ -1,10 +1,9 @@
 //! Connection Cables, Cubic Bézier Curves, Ghost Dragging & Double-Click Anchor Insertion
 use eframe::egui::{
-    self, epaint::CubicBezierShape, Color32, Key, Painter, Pos2, Stroke, Ui, Vec2,
+    self, epaint::CubicBezierShape, Color32, FontId, Key, Painter, Pos2, Stroke, Ui, Vec2,
 };
-use crate::core::graph::{Graph, PortType};
+use crate::core::graph::{Graph, NodeData, PortType};
 use crate::ui::editor::canvas::CanvasState;
-
 
 /// Active cable drag-and-drop state.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -196,7 +195,48 @@ pub fn render_cables(
     interaction
 }
 
-/// Renders a dynamic ghost Bézier curve from the active drag source to the mouse cursor or snapped port.
+/// Finds the closest compatible target port within magnetic snap distance of the cursor.
+pub fn find_snapped_target_port(
+    cursor_pos: Pos2,
+    drag_state: &CableDragState,
+    graph: &Graph,
+    state: &CanvasState,
+) -> Option<(usize, usize, Pos2)> {
+    let zoom = state.zoom;
+    let snap_distance = (28.0_f32 * zoom).clamp(20.0_f32, 42.0_f32);
+    let mut closest: Option<(usize, usize, Pos2, f32)> = None;
+
+    for node in &graph.nodes {
+        if node.id == drag_state.source_node {
+            continue; // Cannot connect to self
+        }
+        for (port_idx, port) in node.ports.iter().enumerate() {
+            let compatible = (drag_state.is_output && port.port_type == PortType::Input)
+                || (!drag_state.is_output && port.port_type == PortType::Output);
+            if !compatible {
+                continue;
+            }
+
+            let port_world = node.pos + port.relative_offset;
+            let port_screen = state.world_to_screen(port_world);
+            let dist = (cursor_pos - port_screen).length();
+
+            if dist <= snap_distance {
+                if let Some((_, _, _, min_dist)) = closest {
+                    if dist < min_dist {
+                        closest = Some((node.id, port_idx, port_screen, dist));
+                    }
+                } else {
+                    closest = Some((node.id, port_idx, port_screen, dist));
+                }
+            }
+        }
+    }
+
+    closest.map(|(node_id, port_idx, screen_pos, _)| (node_id, port_idx, screen_pos))
+}
+
+/// Renders a dynamic ghost Bézier curve from the active drag source to the mouse cursor or magnetically snapped port.
 pub fn render_ghost_cable(
     painter: &Painter,
     state: &CanvasState,
@@ -217,29 +257,44 @@ pub fn render_ghost_cable(
     let p_start = state.world_to_screen(source_world);
     let zoom = state.zoom;
 
-    // Check if target should snap to a hovered port
-    let p_end = if let Some((target_node_id, target_port_idx)) = hovered_port {
-        if target_node_id != drag_state.source_node {
-            if let Some(target_node) = graph.get_node(target_node_id) {
-                if let Some(target_port) = target_node.ports.get(target_port_idx) {
+    // Search for magnetic snap target first, or fallback to hovered port
+    let snapped = find_snapped_target_port(cursor_pos, drag_state, graph, state);
+
+    let (p_end, is_snapped, target_label) = if let Some((target_id, target_port_idx, screen_pos)) = snapped {
+        let label = if let Some(target_node) = graph.get_node(target_id) {
+            let p_name = target_node.ports.get(target_port_idx).map(|p| p.name.as_str()).unwrap_or("In");
+            let node_name = match &target_node.data {
+                NodeData::Dialogue { speaker, .. } => speaker.as_str(),
+                NodeData::Condition { .. } => "Condition",
+                NodeData::Anchor => "Anchor",
+            };
+            format!("Connect \u{2192} {} ({})", node_name, p_name)
+        } else {
+            "Connect".to_string()
+        };
+        (screen_pos, true, Some(label))
+    } else if let Some((h_node_id, h_port_idx)) = hovered_port {
+        if h_node_id != drag_state.source_node {
+            if let Some(target_node) = graph.get_node(h_node_id) {
+                if let Some(target_port) = target_node.ports.get(h_port_idx) {
                     let compatible = (drag_state.is_output && target_port.port_type == PortType::Input)
                         || (!drag_state.is_output && target_port.port_type == PortType::Output);
                     if compatible {
-                        state.world_to_screen(target_node.pos + target_port.relative_offset)
+                        (state.world_to_screen(target_node.pos + target_port.relative_offset), true, None)
                     } else {
-                        cursor_pos
+                        (cursor_pos, false, None)
                     }
                 } else {
-                    cursor_pos
+                    (cursor_pos, false, None)
                 }
             } else {
-                cursor_pos
+                (cursor_pos, false, None)
             }
         } else {
-            cursor_pos
+            (cursor_pos, false, None)
         }
     } else {
-        cursor_pos
+        (cursor_pos, false, None)
     };
 
     let (p0, p3) = if drag_state.is_output {
@@ -250,27 +305,69 @@ pub fn render_ghost_cable(
 
     let (cp1, cp2) = calculate_bezier_control_points(p0, p3, true, zoom);
 
-    // Render dashed / highlighted ghost curve
-    let ghost_color = Color32::from_rgb(220, 220, 240);
+    // Ghost Bézier curve styling
+    let (ghost_stroke_w, ghost_color) = if is_snapped {
+        (2.8_f32, Color32::from_rgb(74, 222, 128)) // Vibrant neon green
+    } else {
+        (2.2_f32, Color32::from_rgb(220, 220, 240)) // Smooth silver
+    };
+
+    // Shadow & outer glow
     painter.add(CubicBezierShape::from_points_stroke(
         [p0, cp1, cp2, p3],
         false,
         Color32::TRANSPARENT,
-        Stroke::new(2.2_f32, ghost_color),
+        Stroke::new(
+            ghost_stroke_w + 1.5_f32,
+            if is_snapped {
+                Color32::from_rgba_premultiplied(74, 222, 128, 60)
+            } else {
+                Color32::from_black_alpha(40)
+            },
+        ),
     ));
 
-    // Outer glow
-    painter.circle_stroke(
-        p_end,
-        6.0_f32 * zoom,
-        Stroke::new(1.5_f32, Color32::from_rgb(255, 255, 255)),
-    );
+    // Main ghost wire
+    painter.add(CubicBezierShape::from_points_stroke(
+        [p0, cp1, cp2, p3],
+        false,
+        Color32::TRANSPARENT,
+        Stroke::new(ghost_stroke_w, ghost_color),
+    ));
+
+    // Snapped target halo & label badge
+    if is_snapped {
+        painter.circle_stroke(
+            p_end,
+            9.0_f32 * zoom,
+            Stroke::new(2.5_f32, Color32::from_rgb(74, 222, 128)),
+        );
+        painter.circle_filled(p_end, 4.0_f32 * zoom, Color32::from_rgb(74, 222, 128));
+
+        if let Some(label_text) = target_label {
+            let font = FontId::proportional((11.0_f32 * zoom).clamp(9.0_f32, 14.0_f32));
+            let badge_pos = p_end + Vec2::new(14.0_f32 * zoom, -8.0_f32 * zoom);
+            painter.text(
+                badge_pos,
+                egui::Align2::LEFT_CENTER,
+                &label_text,
+                font,
+                Color32::from_rgb(240, 255, 240),
+            );
+        }
+    } else {
+        painter.circle_stroke(
+            p_end,
+            6.0_f32 * zoom,
+            Stroke::new(1.5_f32, Color32::from_rgb(255, 255, 255)),
+        );
+    }
 }
 
 /// Handles drag-and-drop connection state transitions:
-/// - Starts drag when a port is clicked.
-/// - Snaps and draws ghost cable while mouse is down.
-/// - Commits connection when released over a valid compatible port.
+/// - Starts drag when a port is pressed with Left Mouse.
+/// - Magnetically snaps and draws ghost cable while Left Mouse is down.
+/// - Commits connection when released over or near a valid compatible port.
 pub fn handle_cable_dragging(
     ui: &Ui,
     painter: &Painter,
@@ -297,13 +394,18 @@ pub fn handle_cable_dragging(
         }
     }
 
-    // 2. While dragging, render ghost cable
+    // 2. While dragging, render ghost cable and handle drop release
     if let Some(active_drag) = *drag_state {
         render_ghost_cable(painter, state, graph, &active_drag, pointer_pos, hovered_port);
 
         // 3. On release: commit connection if dropped over a valid compatible port
         if mouse_released || !mouse_down {
-            if let Some((target_node_id, target_port_idx)) = hovered_port {
+            let snapped = find_snapped_target_port(pointer_pos, &active_drag, graph, state);
+            let target = snapped
+                .map(|(nid, pid, _)| (nid, pid))
+                .or(hovered_port);
+
+            if let Some((target_node_id, target_port_idx)) = target {
                 if target_node_id != active_drag.source_node {
                     if let Some(target_node) = graph.get_node(target_node_id) {
                         if let Some(target_port) = target_node.ports.get(target_port_idx) {

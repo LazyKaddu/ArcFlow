@@ -9,14 +9,16 @@ use crate::ui::editor::canvas::CanvasState;
 /// Output of rendering the nodes on the canvas.
 #[derive(Clone, Debug, Default)]
 pub struct NodeInteraction {
-    /// Node ID that was clicked this frame (if any).
+    /// Node ID that was clicked with Left Mouse this frame (for selection).
     pub clicked_node: Option<usize>,
     /// Port (node_id, port_idx) currently hovered by the pointer.
     pub hovered_port: Option<(usize, usize)>,
     /// Port (node_id, port_idx) from which a cable drag was initiated this frame.
     pub drag_started_port: Option<(usize, usize)>,
-    /// Indicates whether a node is actively being dragged this frame.
+    /// Indicates whether a node is actively being dragged with Right Mouse this frame.
     pub is_dragging_node: bool,
+    /// Indicates whether the cursor is hovering over any node.
+    pub is_hovering_any_node: bool,
 }
 
 /// Renders all nodes in the graph in screen space using the canvas camera transform.
@@ -24,16 +26,38 @@ pub fn render_nodes(
     ui: &mut Ui,
     state: &CanvasState,
     nodes: &mut [EditorNode],
+    node_drag: &mut Option<usize>,
     is_cable_dragging: bool,
 ) -> NodeInteraction {
     let mut interaction = NodeInteraction::default();
     let pointer_pos = ui.input(|i| i.pointer.hover_pos());
-    let mouse_down = ui.input(|i| i.pointer.primary_down());
-    let mouse_clicked = ui.input(|i| i.pointer.primary_clicked());
+    let primary_pressed = ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary));
+    let primary_down = ui.input(|i| i.pointer.button_down(egui::PointerButton::Primary));
+    let primary_clicked = ui.input(|i| i.pointer.primary_clicked());
+    let secondary_pressed = ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Secondary));
+    let secondary_down = ui.input(|i| i.pointer.button_down(egui::PointerButton::Secondary));
     let drag_delta = ui.input(|i| i.pointer.delta());
     let zoom = state.zoom;
 
-    // Track if any port is hovered or pressed first
+    // Check if cursor is hovering over any node
+    let mut hovered_node_id: Option<usize> = None;
+    if let Some(pos) = pointer_pos {
+        for node in nodes.iter() {
+            let screen_rect = state.world_to_screen_rect(Rect::from_min_size(node.pos, node.size));
+            let hit = if node.data.is_anchor() {
+                screen_rect.expand(10.0_f32 * zoom).contains(pos)
+            } else {
+                screen_rect.contains(pos)
+            };
+            if hit {
+                hovered_node_id = Some(node.id);
+                break;
+            }
+        }
+    }
+    interaction.is_hovering_any_node = hovered_node_id.is_some();
+
+    // 1. Port hit testing and Left-Click cable drag initiation
     for node in nodes.iter() {
         for (port_idx, port) in node.ports.iter().enumerate() {
             let port_world = node.pos + port.relative_offset;
@@ -43,7 +67,7 @@ pub fn render_nodes(
             if let Some(pos) = pointer_pos {
                 if hit_rect.contains(pos) {
                     interaction.hovered_port = Some((node.id, port_idx));
-                    if mouse_clicked {
+                    if primary_pressed || (primary_down && !is_cable_dragging) {
                         interaction.drag_started_port = Some((node.id, port_idx));
                     }
                     break;
@@ -55,7 +79,45 @@ pub fn render_nodes(
         }
     }
 
-    // Now render each node card and its contents
+    // 2. Direct Left-Click node selection (if not on a port and not dragging a cable)
+    if primary_clicked && interaction.hovered_port.is_none() && !is_cable_dragging {
+        if let Some(id) = hovered_node_id {
+            interaction.clicked_node = Some(id);
+        }
+    }
+
+    // 3. Right-Click node dragging state management
+    if secondary_pressed {
+        if let Some(id) = hovered_node_id {
+            *node_drag = Some(id);
+        }
+    } else if !secondary_down {
+        *node_drag = None;
+    }
+
+    // Translate node(s) if right-click dragging is active
+    if let Some(drag_node_id) = *node_drag {
+        if secondary_down && drag_delta != Vec2::ZERO {
+            let move_world = state.screen_to_world_vec(drag_delta);
+            let is_drag_node_selected = nodes.iter().any(|n| n.id == drag_node_id && n.selected);
+            if is_drag_node_selected {
+                for node in nodes.iter_mut() {
+                    if node.selected {
+                        node.pos += move_world;
+                    }
+                }
+            } else {
+                for node in nodes.iter_mut() {
+                    if node.id == drag_node_id {
+                        node.pos += move_world;
+                    }
+                }
+            }
+            interaction.is_dragging_node = true;
+        }
+    }
+
+    // 4. Render each node card and its contents
     for node in nodes.iter_mut() {
         let screen_rect = state.world_to_screen_rect(Rect::from_min_size(node.pos, node.size));
 
@@ -67,9 +129,7 @@ pub fn render_nodes(
                     screen_rect,
                     state,
                     &mut interaction,
-                    mouse_down,
-                    mouse_clicked,
-                    drag_delta,
+                    primary_clicked,
                     is_cable_dragging,
                 );
             }
@@ -82,9 +142,9 @@ pub fn render_nodes(
                 render_dialogue_node(
                     ui,
                     node.id,
-                    &mut node.pos,
-                    &mut node.size,
                     node.selected,
+                    &mut node.size,
+                    node.pos,
                     &node.ports,
                     speaker,
                     text,
@@ -92,9 +152,8 @@ pub fn render_nodes(
                     screen_rect,
                     state,
                     &mut interaction,
-                    mouse_down,
-                    mouse_clicked,
-                    drag_delta,
+                    primary_clicked,
+                    secondary_down,
                     is_cable_dragging,
                 );
             }
@@ -106,9 +165,8 @@ pub fn render_nodes(
                 render_condition_node(
                     ui,
                     node.id,
-                    &mut node.pos,
-                    &mut node.size,
                     node.selected,
+                    node.pos,
                     &node.ports,
                     variable,
                     operator,
@@ -116,9 +174,8 @@ pub fn render_nodes(
                     screen_rect,
                     state,
                     &mut interaction,
-                    mouse_down,
-                    mouse_clicked,
-                    drag_delta,
+                    primary_clicked,
+                    secondary_down,
                     is_cable_dragging,
                 );
             }
@@ -130,8 +187,8 @@ pub fn render_nodes(
 
 /// Expanded hitbox around a slit-capsule pin for reliable hover and dragging.
 pub fn port_hit_rect(port_screen: Pos2, _port_type: PortType, zoom: f32) -> Rect {
-    let half_w = (4.0_f32 * zoom).max(8.0_f32);
-    let half_h = (14.0_f32 * zoom).max(14.0_f32);
+    let half_w = (6.0_f32 * zoom).max(12.0_f32);
+    let half_h = (16.0_f32 * zoom).max(18.0_f32);
     Rect::from_center_size(port_screen, Vec2::new(half_w * 2.0_f32, half_h * 2.0_f32))
 }
 
@@ -156,12 +213,20 @@ pub fn paint_capsule_port(
     };
 
     let stroke = if is_hovered {
-        Stroke::new(1.0_f32, Color32::from_rgb(255, 255, 255))
+        Stroke::new(1.5_f32, Color32::from_rgb(255, 255, 255))
     } else {
         Stroke::new(0.5_f32, Color32::from_rgb(30, 30, 34))
     };
 
     painter.rect(pin_rect, rounding, fill_color, stroke);
+
+    if is_hovered {
+        painter.rect_stroke(
+            pin_rect.expand(2.5_f32 * zoom),
+            Rounding::same((pin_w * 0.5_f32) + 2.0_f32),
+            Stroke::new(1.5_f32, Color32::from_rgb(120, 200, 255)),
+        );
+    }
 
     // Optional port label if it's named (like TRUE / FALSE on condition node)
     if !port.name.is_empty() && port.name != "In" && port.name != "Out" {
@@ -186,9 +251,9 @@ pub fn paint_capsule_port(
 fn render_dialogue_node(
     ui: &mut Ui,
     node_id: usize,
-    pos: &mut Pos2,
-    size: &mut Vec2,
     selected: bool,
+    size: &mut Vec2,
+    pos: Pos2,
     ports: &[Port],
     speaker: &mut String,
     text: &mut String,
@@ -196,9 +261,8 @@ fn render_dialogue_node(
     screen_rect: Rect,
     state: &CanvasState,
     interaction: &mut NodeInteraction,
-    mouse_down: bool,
-    mouse_clicked: bool,
-    drag_delta: Vec2,
+    primary_clicked: bool,
+    secondary_down: bool,
     is_cable_dragging: bool,
 ) {
     let zoom = state.zoom;
@@ -253,17 +317,16 @@ fn render_dialogue_node(
         Color32::from_rgb(140, 140, 150),
     );
 
-    // Node drag area detection
-    let card_response = ui.allocate_rect(screen_rect, Sense::click_and_drag());
-    if card_response.clicked() {
-        interaction.clicked_node = Some(node_id);
-    }
-
+    let card_response = ui.allocate_rect(screen_rect, Sense::click());
     let mut is_editing = false;
 
     // Use a child Ui for in-card editable content
     let content_rect = screen_rect.shrink(8.0_f32 * zoom);
     let mut child_ui = ui.child_ui(content_rect, *ui.layout());
+    // Disable text input child_ui during right-click so right-drag never interacts with text fields
+    if secondary_down {
+        child_ui.set_enabled(false);
+    }
 
     // 1. Header: DIALOGUE : <Speaker Name>
     child_ui.horizontal(|ui| {
@@ -327,19 +390,18 @@ fn render_dialogue_node(
         }
     });
 
-    // Check if dragging this node
-    if !is_editing && !is_cable_dragging && card_response.dragged() && mouse_down {
-        *pos += state.screen_to_world_vec(drag_delta);
-        interaction.is_dragging_node = true;
-    }
-
-    if mouse_clicked && card_response.hovered() && !is_editing {
+    // Fallback card click selection
+    if (card_response.clicked() || (primary_clicked && card_response.hovered()))
+        && !is_editing
+        && interaction.hovered_port.is_none()
+        && !is_cable_dragging
+    {
         interaction.clicked_node = Some(node_id);
     }
 
     // Paint embedded capsule ports
     for (port_idx, port) in ports.iter().enumerate() {
-        let port_world = *pos + port.relative_offset;
+        let port_world = pos + port.relative_offset;
         let port_screen = state.world_to_screen(port_world);
         let is_hovered = interaction.hovered_port == Some((node_id, port_idx));
         paint_capsule_port(&painter, port_screen, port, is_hovered, zoom);
@@ -355,9 +417,8 @@ fn render_dialogue_node(
 fn render_condition_node(
     ui: &mut Ui,
     node_id: usize,
-    pos: &mut Pos2,
-    _size: &mut Vec2,
     selected: bool,
+    pos: Pos2,
     ports: &[Port],
     variable: &mut String,
     operator: &mut String,
@@ -365,9 +426,8 @@ fn render_condition_node(
     screen_rect: Rect,
     state: &CanvasState,
     interaction: &mut NodeInteraction,
-    mouse_down: bool,
-    mouse_clicked: bool,
-    drag_delta: Vec2,
+    primary_clicked: bool,
+    secondary_down: bool,
     is_cable_dragging: bool,
 ) {
     let zoom = state.zoom;
@@ -399,11 +459,7 @@ fn render_condition_node(
         Stroke::new(border_width, border_color),
     );
 
-    let card_response = ui.allocate_rect(screen_rect, Sense::click_and_drag());
-    if card_response.clicked() {
-        interaction.clicked_node = Some(node_id);
-    }
-
+    let card_response = ui.allocate_rect(screen_rect, Sense::click());
     let mut is_editing = false;
 
     // Center evaluation block
@@ -418,6 +474,11 @@ fn render_condition_node(
 
     // Render the editable expression inputs inside expr_rect
     let mut child_ui = ui.child_ui(expr_rect, *ui.layout());
+    // Disable expression inputs child_ui during right-click so right-drag never interacts with text fields
+    if secondary_down {
+        child_ui.set_enabled(false);
+    }
+
     child_ui.vertical_centered(|ui| {
         let var_edit = TextEdit::singleline(variable)
             .font(FontId::monospace((10.0_f32 * zoom).clamp(8.0_f32, 12.5_f32)))
@@ -454,8 +515,8 @@ fn render_condition_node(
     // Splitting from right of expression block to TRUE port (port 1) and FALSE port (port 2)
     let branch_origin = Pos2::new(expr_rect.max.x + 2.0_f32 * zoom, eval_center_y);
 
-    let true_port_pos = state.world_to_screen(*pos + ports[1].relative_offset);
-    let false_port_pos = state.world_to_screen(*pos + ports[2].relative_offset);
+    let true_port_pos = state.world_to_screen(pos + ports[1].relative_offset);
+    let false_port_pos = state.world_to_screen(pos + ports[2].relative_offset);
 
     let true_target = Pos2::new(screen_rect.max.x - 42.0_f32 * zoom, true_port_pos.y);
     let false_target = Pos2::new(screen_rect.max.x - 44.0_f32 * zoom, false_port_pos.y);
@@ -482,19 +543,18 @@ fn render_condition_node(
         curve_stroke,
     ));
 
-    // Drag handling for condition node
-    if !is_editing && !is_cable_dragging && card_response.dragged() && mouse_down {
-        *pos += state.screen_to_world_vec(drag_delta);
-        interaction.is_dragging_node = true;
-    }
-
-    if mouse_clicked && card_response.hovered() && !is_editing {
+    // Fallback card click selection
+    if (card_response.clicked() || (primary_clicked && card_response.hovered()))
+        && !is_editing
+        && interaction.hovered_port.is_none()
+        && !is_cable_dragging
+    {
         interaction.clicked_node = Some(node_id);
     }
 
     // Paint ports
     for (port_idx, port) in ports.iter().enumerate() {
-        let port_world = *pos + port.relative_offset;
+        let port_world = pos + port.relative_offset;
         let port_screen = state.world_to_screen(port_world);
         let is_hovered = interaction.hovered_port == Some((node_id, port_idx));
         paint_capsule_port(&painter, port_screen, port, is_hovered, zoom);
@@ -508,9 +568,7 @@ fn render_anchor_node(
     screen_rect: Rect,
     state: &CanvasState,
     interaction: &mut NodeInteraction,
-    mouse_down: bool,
-    mouse_clicked: bool,
-    drag_delta: Vec2,
+    primary_clicked: bool,
     is_cable_dragging: bool,
 ) {
     let zoom = state.zoom;
@@ -519,19 +577,13 @@ fn render_anchor_node(
 
     let painter = ui.painter().clone();
 
-    let pin_response = ui.allocate_rect(screen_rect.expand(4.0_f32 * zoom), Sense::click_and_drag());
+    let pin_response = ui.allocate_rect(screen_rect.expand(10.0_f32 * zoom), Sense::click());
     let is_hovered = pin_response.hovered();
 
-    if pin_response.clicked() {
-        interaction.clicked_node = Some(node.id);
-    }
-
-    if !is_cable_dragging && pin_response.dragged() && mouse_down {
-        node.pos += state.screen_to_world_vec(drag_delta);
-        interaction.is_dragging_node = true;
-    }
-
-    if mouse_clicked && is_hovered {
+    if (pin_response.clicked() || (primary_clicked && is_hovered))
+        && interaction.hovered_port.is_none()
+        && !is_cable_dragging
+    {
         interaction.clicked_node = Some(node.id);
     }
 
@@ -566,6 +618,13 @@ fn render_anchor_node(
         } else {
             Color32::from_rgb(190, 190, 200)
         };
-        painter.circle_filled(port_screen, (2.5_f32 * zoom).clamp(2.0_f32, 4.5_f32), port_color);
+        painter.circle_filled(port_screen, (3.0_f32 * zoom).clamp(2.5_f32, 5.0_f32), port_color);
+        if port_hovered {
+            painter.circle_stroke(
+                port_screen,
+                (5.5_f32 * zoom).clamp(4.0_f32, 8.0_f32),
+                Stroke::new(1.5_f32, Color32::from_rgb(120, 200, 255)),
+            );
+        }
     }
 }

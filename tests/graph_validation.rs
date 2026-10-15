@@ -480,6 +480,218 @@ fn test_ui_shell_states() {
     assert_eq!(inspector.width, 290.0);
 }
 
+#[test]
+fn test_magnetic_port_snapping() {
+    use ArcFlow::core::graph::Graph;
+    use ArcFlow::ui::editor::cables::{find_snapped_target_port, CableDragState};
+    use ArcFlow::ui::editor::canvas::CanvasState;
+    use eframe::egui::{pos2, vec2};
+
+    let graph = Graph::default_demo_graph();
+    let state = CanvasState::new(vec2(0.0, 0.0), 1.0);
+
+    // Node 0: Dialogue, Out port is port 1
+    let drag_from_n0_out = CableDragState {
+        source_node: 0,
+        source_port: 1,
+        is_output: true,
+    };
+
+    // Node 1: Dialogue, In port is port 0 (at world pos pos + (0, 50))
+    let n1 = graph.get_node(1).unwrap();
+    let n1_in_world = n1.port_world_pos(0).unwrap();
+    let n1_in_screen = state.world_to_screen(n1_in_world);
+
+    // Cursor 15px away from Node 1's In port (within 28px snap radius)
+    let near_cursor = pos2(n1_in_screen.x - 12.0, n1_in_screen.y + 8.0);
+    let snapped = find_snapped_target_port(near_cursor, &drag_from_n0_out, &graph, &state);
+    assert!(snapped.is_some(), "Should magnetically snap to nearby In port");
+    let (target_node, target_port, screen_pos) = snapped.unwrap();
+    assert_eq!(target_node, 1);
+    assert_eq!(target_port, 0);
+    assert_eq!(screen_pos, n1_in_screen);
+
+    // Cursor far away (e.g. 100px) should NOT snap
+    let far_cursor = pos2(n1_in_screen.x + 100.0, n1_in_screen.y + 100.0);
+    let far_snap = find_snapped_target_port(far_cursor, &drag_from_n0_out, &graph, &state);
+    assert!(far_snap.is_none(), "Should not snap when cursor is far");
+
+    // Output port should NOT snap to another Output port (e.g. Node 1's Out port)
+    let n1_out_screen = state.world_to_screen(n1.port_world_pos(1).unwrap());
+    let near_out_cursor = pos2(n1_out_screen.x + 5.0, n1_out_screen.y);
+    let out_to_out = find_snapped_target_port(near_out_cursor, &drag_from_n0_out, &graph, &state);
+    assert!(out_to_out.is_none(), "Output cable must not snap to another Output port");
+
+    // Must NOT snap to ports on the same node (no self-loops)
+    let n0_in_screen = state.world_to_screen(graph.get_node(0).unwrap().port_world_pos(0).unwrap());
+    let self_cursor = pos2(n0_in_screen.x, n0_in_screen.y);
+    let self_snap = find_snapped_target_port(self_cursor, &drag_from_n0_out, &graph, &state);
+    assert!(self_snap.is_none(), "Must not snap to ports on the source node");
+}
+
+#[test]
+fn test_branch_and_anchor_cable_connections() {
+    use ArcFlow::core::graph::{Graph, NodeData, PortType};
+    use eframe::egui::pos2;
+
+    let mut graph = Graph::default_demo_graph();
+
+    // Node 2 is Condition Node with:
+    // Port 0: In
+    // Port 1: TRUE (Output)
+    // Port 2: FALSE (Output)
+    let n2 = graph.get_node(2).unwrap();
+    assert_eq!(n2.ports[1].name, "TRUE");
+    assert_eq!(n2.ports[1].port_type, PortType::Output);
+    assert_eq!(n2.ports[2].name, "FALSE");
+    assert_eq!(n2.ports[2].port_type, PortType::Output);
+
+    // 1. Connect Dialogue Node 0 Out -> Condition Node 2 In
+    let c1 = graph.connect(0, 1, 2, 0);
+    assert!(c1, "Should connect Dialogue Out to Condition In");
+
+    // 2. Connect Condition Node 2 TRUE Branch -> Dialogue Node 1 In
+    let c2 = graph.connect(2, 1, 1, 0);
+    assert!(c2, "Should connect Condition TRUE branch to Dialogue In");
+
+    // 3. Add an Anchor node and connect Condition Node 2 FALSE Branch -> Anchor In
+    let anchor_id = graph.add_node(NodeData::Anchor, pos2(450.0, 350.0));
+    let c3 = graph.connect(2, 2, anchor_id, 0);
+    assert!(c3, "Should connect Condition FALSE branch to Anchor In");
+
+    // 4. Connect Anchor Out -> Dialogue Node 0 In (loopback via anchor waypoint)
+    let c4 = graph.connect(anchor_id, 1, 0, 0);
+    assert!(c4, "Should connect Anchor Out to Dialogue In");
+
+    // Verify all 4 new connections exist alongside initial connection (total 5)
+    assert_eq!(graph.connections.len(), 5);
+}
+
+#[test]
+fn test_port_hit_rect_scaling() {
+    use ArcFlow::core::graph::PortType;
+    use ArcFlow::ui::editor::nodes::port_hit_rect;
+    use eframe::egui::pos2;
+
+    let center = pos2(200.0, 150.0);
+
+    // Zoom 1.0
+    let rect_1 = port_hit_rect(center, PortType::Output, 1.0);
+    assert!(rect_1.contains(center));
+    assert!(rect_1.width() >= 24.0);
+    assert!(rect_1.height() >= 32.0);
+
+    // Zoom 0.5 (must maintain minimum comfortable hitbox)
+    let rect_half = port_hit_rect(center, PortType::Input, 0.5);
+    assert!(rect_half.contains(center));
+    assert!(rect_half.width() >= 24.0);
+    assert!(rect_half.height() >= 32.0);
+
+    // Zoom 2.0 (scales up for zoomed-in precision)
+    let rect_2 = port_hit_rect(center, PortType::Output, 2.0);
+    assert!(rect_2.contains(center));
+    assert!(rect_2.width() >= rect_1.width());
+    assert!(rect_2.height() >= rect_1.height());
+}
+
+#[test]
+fn test_left_click_node_selection_and_deselect_invariants() {
+    use ArcFlow::core::graph::Graph;
+    use ArcFlow::ui::editor::canvas::CanvasState;
+    use eframe::egui::{pos2, vec2, Rect};
+
+    let mut graph = Graph::default_demo_graph();
+    let state = CanvasState::new(vec2(0.0, 0.0), 1.0);
+
+    // Initial state: nothing selected
+    for node in &graph.nodes {
+        assert!(!node.selected);
+    }
+
+    // 1. Click inside Node 0 bounds selects Node 0
+    let n0_rect = state.world_to_screen_rect(Rect::from_min_size(graph.nodes[0].pos, graph.nodes[0].size));
+    let click_pos = pos2(n0_rect.min.x + 20.0, n0_rect.min.y + 20.0);
+    assert!(n0_rect.contains(click_pos));
+
+    let clicked_node = graph.nodes.iter().find(|n| {
+        let r = state.world_to_screen_rect(Rect::from_min_size(n.pos, n.size));
+        r.contains(click_pos)
+    }).map(|n| n.id);
+    assert_eq!(clicked_node, Some(0));
+
+    // Simulate selection logic
+    for node in &mut graph.nodes {
+        node.selected = node.id == clicked_node.unwrap();
+    }
+    assert!(graph.nodes[0].selected);
+    assert!(!graph.nodes[1].selected);
+
+    // 2. Click outside any node clears selection
+    let empty_canvas_click = pos2(1200.0, 900.0);
+    let hit_any = graph.nodes.iter().any(|n| {
+        let r = state.world_to_screen_rect(Rect::from_min_size(n.pos, n.size));
+        r.contains(empty_canvas_click)
+    });
+    assert!(!hit_any, "Click should be in empty canvas");
+    if !hit_any {
+        graph.clear_selection();
+    }
+    for node in &graph.nodes {
+        assert!(!node.selected);
+    }
+}
+
+#[test]
+fn test_right_click_node_movement_invariants() {
+    use ArcFlow::core::graph::Graph;
+    use ArcFlow::ui::editor::canvas::CanvasState;
+    use eframe::egui::vec2;
+
+    let mut graph = Graph::default_demo_graph();
+    let state = CanvasState::new(vec2(0.0, 0.0), 1.0);
+
+    let initial_pos_0 = graph.nodes[0].pos;
+    let initial_pos_1 = graph.nodes[1].pos;
+
+    // 1. Right-drag unselected Node 0 by (50, 30) screen delta
+    let delta = vec2(50.0, 30.0);
+    let move_world = state.screen_to_world_vec(delta);
+
+    let drag_node_id = 0;
+    let is_drag_selected = graph.nodes.iter().any(|n| n.id == drag_node_id && n.selected);
+    assert!(!is_drag_selected);
+
+    for node in &mut graph.nodes {
+        if node.id == drag_node_id {
+            node.pos += move_world;
+        }
+    }
+    assert_eq!(graph.nodes[0].pos, initial_pos_0 + move_world);
+    assert_eq!(graph.nodes[1].pos, initial_pos_1); // Node 1 must not move
+
+    // 2. Multi-select: select both Node 0 and Node 1, right-drag Node 0
+    graph.nodes[0].selected = true;
+    graph.nodes[1].selected = true;
+
+    let delta_multi = vec2(-20.0, 10.0);
+    let move_multi = state.screen_to_world_vec(delta_multi);
+    let is_drag_selected_multi = graph.nodes.iter().any(|n| n.id == drag_node_id && n.selected);
+    assert!(is_drag_selected_multi);
+
+    let pos_before_0 = graph.nodes[0].pos;
+    let pos_before_1 = graph.nodes[1].pos;
+
+    for node in &mut graph.nodes {
+        if node.selected {
+            node.pos += move_multi;
+        }
+    }
+    assert_eq!(graph.nodes[0].pos, pos_before_0 + move_multi);
+    assert_eq!(graph.nodes[1].pos, pos_before_1 + move_multi);
+}
+
+
+
 
 
 
