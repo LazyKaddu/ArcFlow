@@ -294,10 +294,10 @@ The following roadmap outlines potential development milestones.
 
 - [x] Establish the native application shell and project dashboard.
 - [ ] Implement project creation, loading, and saving.
-- [ ] Integrate the interactive node canvas.
-- [ ] Implement dialogue, condition, and action nodes.
+- [x] Integrate the interactive node canvas.
+- [x] Implement dialogue, condition, and action nodes.
 - [ ] Add character definitions and blackboard variable management.
-- [ ] Implement graph validation and cycle analysis.
+- [x] Implement graph validation and cycle analysis.
 - [ ] Build deterministic JSON export.
 - [ ] Add localization extraction and string-key management.
 - [ ] Implement and test Unreal Engine integration.
