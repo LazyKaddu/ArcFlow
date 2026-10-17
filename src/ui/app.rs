@@ -18,6 +18,7 @@ pub struct ArcFlowApp {
     inspector_state: crate::ui::editor::inspector::InspectorState,
     cable_drag: Option<crate::ui::editor::cables::CableDragState>,
     node_drag: Option<usize>,
+    canvas_pan_source: Option<crate::ui::editor::canvas::CanvasPanSource>,
     selected_connection: Option<usize>,
     search_query: String,
     is_dirty: bool,
@@ -36,6 +37,7 @@ impl Default for ArcFlowApp {
             inspector_state: crate::ui::editor::inspector::InspectorState::default(),
             cable_drag: None,
             node_drag: None,
+            canvas_pan_source: None,
             selected_connection: None,
             search_query: String::new(),
             is_dirty: false,
@@ -206,14 +208,27 @@ impl ArcFlowApp {
                     && !node_interaction.is_hovering_any_node
                     && !in_active_side_panels;
 
+                let clicked_on_node_or_cable = node_interaction.is_hovering_any_node
+                    || node_interaction.clicked_node.is_some()
+                    || cable_interaction.clicked_connection.is_some()
+                    || cable_interaction.hovered_connection.is_some();
+
                 let canvas_interaction = crate::ui::editor::canvas::handle_canvas_navigation(
                     ui,
                     &mut self.canvas_state,
+                    &mut self.canvas_pan_source,
                     allow_secondary_pan,
+                    in_active_side_panels,
+                    clicked_on_node_or_cable,
                 );
 
                 // Dynamic contextual cursor icon
-                if self.cable_drag.is_some() {
+                let space_down = ui.input(|i| i.key_down(egui::Key::Space));
+                if self.canvas_pan_source.is_some() {
+                    ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
+                } else if space_down && !in_active_side_panels {
+                    ctx.set_cursor_icon(egui::CursorIcon::Grab);
+                } else if self.cable_drag.is_some() {
                     ctx.set_cursor_icon(egui::CursorIcon::Crosshair);
                 } else if node_interaction.is_dragging_node || self.node_drag.is_some() {
                     ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
@@ -222,10 +237,7 @@ impl ArcFlowApp {
                 }
 
                 // Deselect everything ONLY when empty canvas background is clicked
-                let clicked_on_any_node = node_interaction.is_hovering_any_node || node_interaction.clicked_node.is_some();
-                if canvas_interaction.response.clicked()
-                    && !clicked_on_any_node
-                    && cable_interaction.clicked_connection.is_none()
+                if canvas_interaction.clicked_empty_canvas
                     && self.cable_drag.is_none()
                     && !in_active_side_panels
                 {
