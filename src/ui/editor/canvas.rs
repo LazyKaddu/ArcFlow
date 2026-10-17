@@ -1,5 +1,5 @@
 //! Infinite Dot-Grid Virtual Viewport & Coordinate Transformation Engine
-use eframe::egui::{self, Color32, Painter, Pos2, Rect, Response, Sense, Ui, Vec2};
+use eframe::egui::{self, Color32, Painter, Pos2, Rect, Ui, Vec2};
 
 /// Dual coordinate-space camera state for the infinite editor canvas.
 ///
@@ -96,53 +96,118 @@ impl CanvasState {
     }
 }
 
+/// Source of active camera panning gesture.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CanvasPanSource {
+    Middle,
+    Secondary,
+    Space,
+}
+
 /// Outcome of canvas navigation handling (panning and zooming).
+#[derive(Clone, Debug, Default)]
 pub struct CanvasInteraction {
-    pub response: Response,
     pub is_panning: bool,
+    pub clicked_empty_canvas: bool,
 }
 
 /// Handles user camera controls:
-/// - Middle-mouse drag or secondary drag translates pan offset.
-/// - Left-mouse drag on background translates pan offset when `allow_left_drag` is true.
-/// - Space key + drag translates pan offset.
+/// - Middle-mouse drag anywhere on canvas translates pan offset.
+/// - Right-mouse drag on empty background translates pan offset.
+/// - Space key + mouse drag translates pan offset.
 /// - Mouse wheel scroll zooms smoothly centered at the mouse cursor.
 pub fn handle_canvas_navigation(
     ui: &mut Ui,
     state: &mut CanvasState,
+    pan_source: &mut Option<CanvasPanSource>,
     allow_secondary_pan: bool,
+    in_active_side_panels: bool,
+    clicked_on_node_or_cable: bool,
 ) -> CanvasInteraction {
-    let rect = ui.available_rect_before_wrap();
-    let response = ui.allocate_rect(rect, Sense::click_and_drag());
-
-    let mut is_panning = false;
+    let canvas_rect = ui.max_rect();
+    let pointer_pos = ui.input(|i| i.pointer.hover_pos().or(i.pointer.interact_pos()));
+    let in_canvas = pointer_pos.map_or(false, |pos| canvas_rect.contains(pos)) && !in_active_side_panels;
 
     // 1. Mouse wheel zoom anchored at cursor
     let scroll_delta = ui.input(|i| i.raw_scroll_delta.y);
-    if scroll_delta != 0.0 && response.hovered() {
+    if scroll_delta != 0.0 && in_canvas {
         let factor = if scroll_delta > 0.0 { 1.10 } else { 1.0 / 1.10 };
-        if let Some(cursor_pos) = ui.input(|i| i.pointer.hover_pos()) {
+        if let Some(cursor_pos) = pointer_pos {
             state.zoom_at(cursor_pos, factor);
         }
     }
 
-    // 2. Camera panning physics: Middle-mouse drag, Space + drag, or Right-drag on empty background
-    let middle_down = ui.input(|i| i.pointer.button_down(egui::PointerButton::Middle));
-    let secondary_down = ui.input(|i| i.pointer.button_down(egui::PointerButton::Secondary));
-    let space_down = ui.input(|i| i.key_down(egui::Key::Space));
-    let secondary_drag = allow_secondary_pan && secondary_down;
-
-    if (middle_down || secondary_drag || space_down) && (response.hovered() || response.dragged()) {
-        let drag_delta = ui.input(|i| i.pointer.delta());
-        if drag_delta != Vec2::ZERO {
-            state.pan += state.screen_to_world_vec(drag_delta);
-            is_panning = true;
+    // Also support trackpad pinch-zoom
+    let zoom_delta = ui.input(|i| i.zoom_delta());
+    if (zoom_delta - 1.0).abs() > 0.001 && in_canvas {
+        if let Some(cursor_pos) = pointer_pos {
+            state.zoom_at(cursor_pos, zoom_delta);
         }
     }
 
+    // 2. Camera panning physics: Middle-mouse drag, Space + drag, or Right-drag on empty background
+    let middle_pressed = ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Middle));
+    let middle_down = ui.input(|i| i.pointer.button_down(egui::PointerButton::Middle));
+    let secondary_pressed = ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Secondary));
+    let secondary_down = ui.input(|i| i.pointer.button_down(egui::PointerButton::Secondary));
+    let primary_down = ui.input(|i| i.pointer.button_down(egui::PointerButton::Primary));
+    let space_down = ui.input(|i| i.key_down(egui::Key::Space));
+    let drag_delta = ui.input(|i| i.pointer.delta());
+
+    // Update pan source state transitions
+    if pan_source.is_none() {
+        if middle_pressed && in_canvas {
+            *pan_source = Some(CanvasPanSource::Middle);
+        } else if secondary_pressed && allow_secondary_pan && in_canvas {
+            *pan_source = Some(CanvasPanSource::Secondary);
+        } else if space_down && (primary_down || middle_down || secondary_down) && in_canvas {
+            *pan_source = Some(CanvasPanSource::Space);
+        }
+    }
+
+    let mut is_panning = false;
+
+    match *pan_source {
+        Some(CanvasPanSource::Middle) => {
+            if middle_down {
+                if drag_delta != Vec2::ZERO {
+                    state.pan += state.screen_to_world_vec(drag_delta);
+                }
+                is_panning = true;
+            } else {
+                *pan_source = None;
+            }
+        }
+        Some(CanvasPanSource::Secondary) => {
+            if secondary_down {
+                if drag_delta != Vec2::ZERO {
+                    state.pan += state.screen_to_world_vec(drag_delta);
+                }
+                is_panning = true;
+            } else {
+                *pan_source = None;
+            }
+        }
+        Some(CanvasPanSource::Space) => {
+            if space_down && (primary_down || middle_down || secondary_down) {
+                if drag_delta != Vec2::ZERO {
+                    state.pan += state.screen_to_world_vec(drag_delta);
+                }
+                is_panning = true;
+            } else {
+                *pan_source = None;
+            }
+        }
+        None => {}
+    }
+
+    // 3. Detect primary click on empty canvas background (for deselecting nodes)
+    let primary_clicked = ui.input(|i| i.pointer.primary_clicked());
+    let clicked_empty_canvas = primary_clicked && in_canvas && !clicked_on_node_or_cable && pan_source.is_none();
+
     CanvasInteraction {
-        response,
         is_panning,
+        clicked_empty_canvas,
     }
 }
 
