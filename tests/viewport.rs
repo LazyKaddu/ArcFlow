@@ -88,3 +88,70 @@ fn test_frustum_culling_bounds() {
     assert!((screen_rect.max.x - round_trip_rect.max.x).abs() < 1e-3);
     assert!((screen_rect.max.y - round_trip_rect.max.y).abs() < 1e-3);
 }
+
+#[test]
+fn test_canvas_panning_delta_projections() {
+    // Tests that panning delta in screen space correctly shifts the world pan
+    // such that all screen-projected nodes translate by the exact pixel delta.
+    let zooms = [0.5_f32, 1.0_f32, 1.75_f32, 2.5_f32];
+    let screen_delta = vec2(120.0, -85.0);
+
+    for zoom in zooms {
+        let mut state = CanvasState::new(vec2(250.0, 100.0), zoom);
+        let sample_world_point = pos2(400.0, 300.0);
+
+        let initial_screen = state.world_to_screen(sample_world_point);
+
+        // Apply screen delta as done by camera panning physics
+        state.pan += state.screen_to_world_vec(screen_delta);
+
+        let updated_screen = state.world_to_screen(sample_world_point);
+
+        // The point on screen must translate exactly by screen_delta
+        assert!(
+            (updated_screen.x - (initial_screen.x + screen_delta.x)).abs() < 1e-4,
+            "Panning X delta failed at zoom {}: expected {}, got {}",
+            zoom,
+            initial_screen.x + screen_delta.x,
+            updated_screen.x
+        );
+        assert!(
+            (updated_screen.y - (initial_screen.y + screen_delta.y)).abs() < 1e-4,
+            "Panning Y delta failed at zoom {}: expected {}, got {}",
+            zoom,
+            initial_screen.y + screen_delta.y,
+            updated_screen.y
+        );
+    }
+}
+
+#[test]
+fn test_canvas_pan_source_invariants() {
+    use ArcFlow::ui::editor::canvas::CanvasPanSource;
+
+    // Verify CanvasPanSource enum equality and copy semantics
+    let mut pan_source: Option<CanvasPanSource> = None;
+    assert_eq!(pan_source, None);
+
+    // 1. Middle-mouse pan activation
+    pan_source = Some(CanvasPanSource::Middle);
+    assert_eq!(pan_source, Some(CanvasPanSource::Middle));
+
+    // Release
+    pan_source = None;
+    assert_eq!(pan_source, None);
+
+    // 2. Secondary (Right-click) empty-canvas pan activation
+    pan_source = Some(CanvasPanSource::Secondary);
+    assert_eq!(pan_source, Some(CanvasPanSource::Secondary));
+    assert_ne!(pan_source, Some(CanvasPanSource::Middle));
+
+    // Release
+    pan_source = None;
+    assert_eq!(pan_source, None);
+
+    // 3. Spacebar + drag activation
+    pan_source = Some(CanvasPanSource::Space);
+    assert_eq!(pan_source, Some(CanvasPanSource::Space));
+    assert_ne!(pan_source, Some(CanvasPanSource::Secondary));
+}
