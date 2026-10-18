@@ -1,6 +1,6 @@
 //! Draggable Logic Nodes (Dialogue, Condition, Anchor) & Slit-Capsule Ports
 use eframe::egui::{
-    self, epaint::CubicBezierShape, Color32, FontId, Frame, Margin, Painter, Pos2, Rect, Rounding,
+    self, epaint::CubicBezierShape, Color32, FontId, Frame, Painter, Pos2, Rect, Rounding,
     Sense, Stroke, TextEdit, Ui, Vec2,
 };
 use crate::core::graph::{EditorNode, NodeData, Port, PortType};
@@ -185,23 +185,281 @@ pub fn render_nodes(
     interaction
 }
 
-/// Expanded hitbox around a slit-capsule pin for reliable hover and dragging.
+/// expanded hitbox around a slit-capsule pin for reliable hover and dragging.
 pub fn port_hit_rect(port_screen: Pos2, _port_type: PortType, zoom: f32) -> Rect {
     let half_w = (6.0_f32 * zoom).max(12.0_f32);
     let half_h = (16.0_f32 * zoom).max(18.0_f32);
     Rect::from_center_size(port_screen, Vec2::new(half_w * 2.0_f32, half_h * 2.0_f32))
 }
 
-/// Paints the vertical slit-capsule pin embedded into the card border.
+/// Robust ear-clipping triangulation algorithm for arbitrary simple 2D polygons.
+pub fn triangulate_polygon(pts: &[Pos2]) -> Vec<u32> {
+    let n = pts.len();
+    if n < 3 {
+        return Vec::new();
+    }
+    if n == 3 {
+        return vec![0, 1, 2];
+    }
+
+    // Determine winding: signed area
+    let mut area = 0.0_f32;
+    for i in 0..n {
+        let j = (i + 1) % n;
+        area += (pts[j].x - pts[i].x) * (pts[j].y + pts[i].y);
+    }
+    let is_cw = area > 0.0;
+
+    let mut indices = Vec::with_capacity((n - 2) * 3);
+    let mut v: Vec<usize> = (0..n).collect();
+
+    let is_convex = |a: Pos2, b: Pos2, c: Pos2| -> bool {
+        let cross = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+        if is_cw {
+            cross < -1e-5
+        } else {
+            cross > 1e-5
+        }
+    };
+
+    let point_in_tri = |p: Pos2, a: Pos2, b: Pos2, c: Pos2| -> bool {
+        let sign = |p1: Pos2, p2: Pos2, p3: Pos2| -> f32 {
+            (p1.x - p3.x) * (p2.y - p3.y) - (p2.x - p3.x) * (p1.y - p3.y)
+        };
+        let d1 = sign(p, a, b);
+        let d2 = sign(p, b, c);
+        let d3 = sign(p, c, a);
+        let has_neg = (d1 < -1e-5) || (d2 < -1e-5) || (d3 < -1e-5);
+        let has_pos = (d1 > 1e-5) || (d2 > 1e-5) || (d3 > 1e-5);
+        !(has_neg && has_pos)
+    };
+
+    let mut iterations = 0;
+    let max_iterations = n * n;
+
+    while v.len() > 3 && iterations < max_iterations {
+        iterations += 1;
+        let mut ear_found = false;
+        let len = v.len();
+        for i in 0..len {
+            let prev = (i + len - 1) % len;
+            let next = (i + 1) % len;
+            let vi = v[i];
+            let vp = v[prev];
+            let vn = v[next];
+
+            let a = pts[vp];
+            let b = pts[vi];
+            let c = pts[vn];
+
+            if is_convex(a, b, c) {
+                let mut contains_any = false;
+                for j in 0..len {
+                    if j != prev && j != i && j != next {
+                        if point_in_tri(pts[v[j]], a, b, c) {
+                            contains_any = true;
+                            break;
+                        }
+                    }
+                }
+                if !contains_any {
+                    indices.push(vp as u32);
+                    indices.push(vi as u32);
+                    indices.push(vn as u32);
+                    v.remove(i);
+                    ear_found = true;
+                    break;
+                }
+            }
+        }
+        if !ear_found {
+            // Degenerate fallback: pop one vertex to guarantee completion
+            if v.len() > 3 {
+                let last = v.len() - 1;
+                indices.push(v[0] as u32);
+                indices.push(v[1] as u32);
+                indices.push(v[last] as u32);
+                v.remove(0);
+            }
+        }
+    }
+
+    if v.len() == 3 {
+        indices.push(v[0] as u32);
+        indices.push(v[1] as u32);
+        indices.push(v[2] as u32);
+    }
+
+    indices
+}
+
+/// Constructs the perimeter vertices for a Dialogue node card with 45-degree chamfered notches.
+/// - Upper-left notch around `in_port_y`
+/// - Lower-right notch around `out_port_y`
+pub fn build_dialogue_polygon(
+    rect: Rect,
+    in_port_y: f32,
+    out_port_y: f32,
+    zoom: f32,
+) -> Vec<Pos2> {
+    let r = (8.0_f32 * zoom).clamp(4.0_f32, 10.0_f32);
+    let notch_d = (EditorNode::NOTCH_DEPTH * zoom).clamp(4.0_f32, 12.0_f32);
+    let notch_half_h = (15.0_f32 * zoom).clamp(8.0_f32, 22.0_f32);
+    let chamfer = (notch_d * 0.75_f32).clamp(3.0_f32, notch_half_h * 0.5_f32);
+
+    let mut pts = Vec::with_capacity(24);
+
+    // Top-left corner arc
+    pts.push(Pos2::new(rect.min.x, rect.min.y + r));
+    pts.push(Pos2::new(rect.min.x + r * 0.293_f32, rect.min.y + r * 0.293_f32));
+    pts.push(Pos2::new(rect.min.x + r, rect.min.y));
+
+    // Top-right corner arc
+    pts.push(Pos2::new(rect.max.x - r, rect.min.y));
+    pts.push(Pos2::new(rect.max.x - r * 0.293_f32, rect.min.y + r * 0.293_f32));
+    pts.push(Pos2::new(rect.max.x, rect.min.y + r));
+
+    // Right edge: down to lower-right notch
+    let out_top = (out_port_y - notch_half_h).clamp(rect.min.y + r + 4.0_f32, rect.max.y - r - 4.0_f32);
+    let out_bot = (out_port_y + notch_half_h).clamp(rect.min.y + r + 4.0_f32, rect.max.y - r - 4.0_f32);
+
+    pts.push(Pos2::new(rect.max.x, out_top));
+    pts.push(Pos2::new(rect.max.x - notch_d, out_top + chamfer));
+    pts.push(Pos2::new(rect.max.x - notch_d, out_bot - chamfer));
+    pts.push(Pos2::new(rect.max.x, out_bot));
+
+    // Bottom-right corner arc
+    pts.push(Pos2::new(rect.max.x, rect.max.y - r));
+    pts.push(Pos2::new(rect.max.x - r * 0.293_f32, rect.max.y - r * 0.293_f32));
+    pts.push(Pos2::new(rect.max.x - r, rect.max.y));
+
+    // Bottom-left corner arc
+    pts.push(Pos2::new(rect.min.x + r, rect.max.y));
+    pts.push(Pos2::new(rect.min.x + r * 0.293_f32, rect.max.y - r * 0.293_f32));
+    pts.push(Pos2::new(rect.min.x, rect.max.y - r));
+
+    // Left edge: up to upper-left notch
+    let in_top = (in_port_y - notch_half_h).clamp(rect.min.y + r + 4.0_f32, rect.max.y - r - 4.0_f32);
+    let in_bot = (in_port_y + notch_half_h).clamp(rect.min.y + r + 4.0_f32, rect.max.y - r - 4.0_f32);
+
+    pts.push(Pos2::new(rect.min.x, in_bot));
+    pts.push(Pos2::new(rect.min.x + notch_d, in_bot - chamfer));
+    pts.push(Pos2::new(rect.min.x + notch_d, in_top + chamfer));
+    pts.push(Pos2::new(rect.min.x, in_top));
+
+    pts
+}
+
+/// Constructs the perimeter vertices for a Condition / Branch node card with 45-degree chamfered notches:
+/// - Left centered notch around `in_port_y`
+/// - Right inset bay spanning between top and bottom chamfers
+pub fn build_condition_polygon(
+    rect: Rect,
+    in_port_y: f32,
+    zoom: f32,
+) -> Vec<Pos2> {
+    let r = (8.0_f32 * zoom).clamp(4.0_f32, 10.0_f32);
+    let notch_d = (EditorNode::NOTCH_DEPTH * zoom).clamp(4.0_f32, 12.0_f32);
+    let notch_half_h = (15.0_f32 * zoom).clamp(8.0_f32, 22.0_f32);
+    let chamfer = (notch_d * 0.75_f32).clamp(3.0_f32, notch_half_h * 0.5_f32);
+
+    let mut pts = Vec::with_capacity(24);
+
+    // Top-left corner arc
+    pts.push(Pos2::new(rect.min.x, rect.min.y + r));
+    pts.push(Pos2::new(rect.min.x + r * 0.293_f32, rect.min.y + r * 0.293_f32));
+    pts.push(Pos2::new(rect.min.x + r, rect.min.y));
+
+    // Top-right corner arc
+    pts.push(Pos2::new(rect.max.x - r, rect.min.y));
+    pts.push(Pos2::new(rect.max.x - r * 0.293_f32, rect.min.y + r * 0.293_f32));
+    pts.push(Pos2::new(rect.max.x, rect.min.y + r));
+
+    // Right edge: Inset bay matching mockup 2
+    let bay_top = (rect.min.y + 18.0_f32 * zoom).clamp(rect.min.y + r + 2.0_f32, rect.max.y - r - 20.0_f32);
+    let bay_bot = (rect.max.y - 18.0_f32 * zoom).clamp(bay_top + 16.0_f32, rect.max.y - r - 2.0_f32);
+
+    pts.push(Pos2::new(rect.max.x, bay_top));
+    pts.push(Pos2::new(rect.max.x - notch_d, bay_top + chamfer));
+    pts.push(Pos2::new(rect.max.x - notch_d, bay_bot - chamfer));
+    pts.push(Pos2::new(rect.max.x, bay_bot));
+
+    // Bottom-right corner arc
+    pts.push(Pos2::new(rect.max.x, rect.max.y - r));
+    pts.push(Pos2::new(rect.max.x - r * 0.293_f32, rect.max.y - r * 0.293_f32));
+    pts.push(Pos2::new(rect.max.x - r, rect.max.y));
+
+    // Bottom-left corner arc
+    pts.push(Pos2::new(rect.min.x + r, rect.max.y));
+    pts.push(Pos2::new(rect.min.x + r * 0.293_f32, rect.max.y - r * 0.293_f32));
+    pts.push(Pos2::new(rect.min.x, rect.max.y - r));
+
+    // Left edge: centered notch around in_port_y
+    let in_top = (in_port_y - notch_half_h).clamp(rect.min.y + r + 4.0_f32, rect.max.y - r - 4.0_f32);
+    let in_bot = (in_port_y + notch_half_h).clamp(rect.min.y + r + 4.0_f32, rect.max.y - r - 4.0_f32);
+
+    pts.push(Pos2::new(rect.min.x, in_bot));
+    pts.push(Pos2::new(rect.min.x + notch_d, in_bot - chamfer));
+    pts.push(Pos2::new(rect.min.x + notch_d, in_top + chamfer));
+    pts.push(Pos2::new(rect.min.x, in_top));
+
+    pts
+}
+
+/// Paints a notched card shape with ambient drop shadow, filled polygon mesh, and border stroke.
+pub fn paint_card_shape(
+    painter: &Painter,
+    rect: Rect,
+    vertices: &[Pos2],
+    bg_color: Color32,
+    border_color: Color32,
+    border_width: f32,
+    zoom: f32,
+) {
+    // 1. Ambient drop shadow matching elevated mockups
+    let shadow = eframe::epaint::Shadow {
+        offset: Vec2::new(0.0_f32, (3.5_f32 * zoom).clamp(1.5_f32, 6.0_f32)),
+        blur: (18.0_f32 * zoom).clamp(6.0_f32, 30.0_f32),
+        spread: (1.5_f32 * zoom).clamp(0.5_f32, 3.0_f32),
+        color: Color32::from_black_alpha((90.0_f32 * zoom.clamp(0.4_f32, 1.0_f32)) as u8),
+    };
+    painter.add(
+        Frame::none()
+            .rounding(Rounding::same(8.0_f32 * zoom))
+            .shadow(shadow)
+            .fill(Color32::TRANSPARENT)
+            .paint(rect.shrink(1.0_f32)),
+    );
+
+    // 2. Filled polygon body mesh
+    let mut mesh = eframe::epaint::Mesh::default();
+    for pt in vertices {
+        mesh.vertices.push(eframe::epaint::Vertex {
+            pos: *pt,
+            uv: eframe::epaint::WHITE_UV,
+            color: bg_color,
+        });
+    }
+    mesh.indices = triangulate_polygon(vertices);
+    painter.add(egui::Shape::mesh(mesh));
+
+    // 3. Perimeter border outline
+    painter.add(eframe::epaint::PathShape::closed_line(
+        vertices.to_vec(),
+        Stroke::new(border_width, border_color),
+    ));
+}
+
+/// Paints the vertical slit-capsule pin embedded into the card border notch.
 pub fn paint_capsule_port(
     painter: &Painter,
     center: Pos2,
-    port: &Port,
+    _port: &Port,
     is_hovered: bool,
     zoom: f32,
 ) {
-    let pin_w = (6.0_f32 * zoom).clamp(3.5_f32, 10.0_f32);
-    let pin_h = (24.0_f32 * zoom).clamp(10.0_f32, 36.0_f32);
+    let pin_w = (4.5_f32 * zoom).clamp(3.0_f32, 7.0_f32);
+    let pin_h = (18.0_f32 * zoom).clamp(10.0_f32, 26.0_f32);
     let rounding = Rounding::same(pin_w * 0.5_f32);
 
     let pin_rect = Rect::from_center_size(center, Vec2::new(pin_w, pin_h));
@@ -209,13 +467,13 @@ pub fn paint_capsule_port(
     let fill_color = if is_hovered {
         Color32::from_rgb(255, 255, 255)
     } else {
-        Color32::from_rgb(225, 225, 232)
+        Color32::from_rgb(180, 180, 192)
     };
 
     let stroke = if is_hovered {
         Stroke::new(1.5_f32, Color32::from_rgb(255, 255, 255))
     } else {
-        Stroke::new(0.5_f32, Color32::from_rgb(30, 30, 34))
+        Stroke::new(0.5_f32, Color32::from_rgb(34, 34, 38))
     };
 
     painter.rect(pin_rect, rounding, fill_color, stroke);
@@ -225,24 +483,6 @@ pub fn paint_capsule_port(
             pin_rect.expand(2.5_f32 * zoom),
             Rounding::same((pin_w * 0.5_f32) + 2.0_f32),
             Stroke::new(1.5_f32, Color32::from_rgb(120, 200, 255)),
-        );
-    }
-
-    // Optional port label if it's named (like TRUE / FALSE on condition node)
-    if zoom >= EditorNode::LOD_ZOOM_THRESHOLD && !port.name.is_empty() && port.name != "In" && port.name != "Out" {
-        let label_font = FontId::proportional((9.0_f32 * zoom).max(1.0_f32));
-        let text_color = if port.name == "TRUE" {
-            Color32::from_rgb(120, 220, 140)
-        } else {
-            Color32::from_rgb(240, 130, 120)
-        };
-        let label_pos = center + Vec2::new(-36.0_f32 * zoom, -5.0_f32 * zoom);
-        painter.text(
-            label_pos,
-            egui::Align2::RIGHT_TOP,
-            &port.name,
-            label_font,
-            text_color,
         );
     }
 }
@@ -267,39 +507,42 @@ fn render_dialogue_node(
 ) {
     let zoom = state.zoom;
     let is_compact = zoom < EditorNode::LOD_ZOOM_THRESHOLD;
-    let rounding = if is_compact {
-        Rounding::same((6.0_f32 * zoom).clamp(3.0_f32, 8.0_f32))
-    } else {
-        Rounding::same((8.0_f32 * zoom).clamp(4.0_f32, 12.0_f32))
-    };
-
     let painter = ui.painter().clone();
 
     // Card background & borders
-    let bg_color = Color32::from_rgb(46, 46, 50);
+    let bg_color = Color32::from_rgb(76, 76, 80);
     let border_color = if selected {
-        Color32::from_rgb(220, 220, 235)
+        Color32::from_rgb(225, 225, 240)
     } else {
-        Color32::from_rgb(72, 72, 78)
+        Color32::from_rgb(98, 98, 104)
     };
     let border_width = if selected { 1.5_f32 } else { 1.0_f32 };
 
-    // Drop shadow
-    let shadow_y = if is_compact { 2.0_f32 * zoom } else { 4.0_f32 * zoom };
-    let shadow_rect = screen_rect.translate(Vec2::new(0.0_f32, shadow_y));
-    painter.rect_filled(
-        shadow_rect,
-        rounding,
-        Color32::from_black_alpha((90.0_f32 * zoom.clamp(0.5_f32, 1.2_f32)) as u8),
-    );
+    let in_port_pos = state.world_to_screen(pos + ports[0].relative_offset);
+    let out_port_pos = state.world_to_screen(pos + ports[1].relative_offset);
 
-    // Card background body
-    painter.rect(
-        screen_rect,
-        rounding,
-        bg_color,
-        Stroke::new(border_width, border_color),
-    );
+    if is_compact {
+        // Compact LOD mode: Single-line sleek bar
+        let rounding = Rounding::same((6.0_f32 * zoom).clamp(3.0_f32, 8.0_f32));
+        let shadow = eframe::epaint::Shadow {
+            offset: Vec2::new(0.0_f32, 2.0_f32 * zoom),
+            blur: 10.0_f32 * zoom,
+            spread: 1.0_f32 * zoom,
+            color: Color32::from_black_alpha(70),
+        };
+        painter.add(
+            Frame::none()
+                .rounding(rounding)
+                .shadow(shadow)
+                .fill(Color32::TRANSPARENT)
+                .paint(screen_rect),
+        );
+        painter.rect(screen_rect, rounding, bg_color, Stroke::new(border_width, border_color));
+    } else {
+        // Full detail mode: Notched card polygon with ambient shadow
+        let vertices = build_dialogue_polygon(screen_rect, in_port_pos.y, out_port_pos.y, zoom);
+        paint_card_shape(&painter, screen_rect, &vertices, bg_color, border_color, border_width, zoom);
+    }
 
     let card_response = ui.allocate_rect(screen_rect, Sense::click());
     let mut is_editing = false;
@@ -313,7 +556,7 @@ fn render_dialogue_node(
             egui::Align2::RIGHT_CENTER,
             &id_tag,
             tag_font,
-            Color32::from_rgb(140, 140, 150),
+            Color32::from_rgb(168, 168, 178),
         );
 
         let content_rect = Rect::from_min_max(
@@ -330,7 +573,7 @@ fn render_dialogue_node(
                 egui::RichText::new("DIALOGUE :")
                     .font(FontId::proportional((11.5_f32 * zoom).max(1.0_f32)))
                     .strong()
-                    .color(Color32::from_rgb(220, 220, 230)),
+                    .color(Color32::from_rgb(230, 230, 235)),
             );
 
             let speaker_edit = TextEdit::singleline(speaker)
@@ -345,47 +588,65 @@ fn render_dialogue_node(
             }
         });
     } else {
-        // Full detail mode: Top header banner + divider + multiline text + audio key
-        let header_h = 32.0_f32 * zoom;
-        let divider_y = screen_rect.min.y + header_h;
+        // Full detail mode: Justified-between header + dual dividers + centered quotes + footer
+        let header_h = 36.0_f32 * zoom;
+        let divider_top_y = screen_rect.min.y + header_h;
+        let footer_h = 34.0_f32 * zoom;
+        let divider_bot_y = screen_rect.max.y - footer_h;
+
+        // Top horizontal divider line below header
         painter.line_segment(
             [
-                Pos2::new(screen_rect.min.x, divider_y),
-                Pos2::new(screen_rect.max.x, divider_y),
+                Pos2::new(screen_rect.min.x, divider_top_y),
+                Pos2::new(screen_rect.max.x, divider_top_y),
             ],
-            Stroke::new(1.0_f32, Color32::from_rgb(62, 62, 68)),
+            Stroke::new(1.0_f32, Color32::from_rgb(94, 94, 98)),
         );
 
+        // Bottom horizontal divider line above footer
+        painter.line_segment(
+            [
+                Pos2::new(screen_rect.min.x, divider_bot_y),
+                Pos2::new(screen_rect.max.x, divider_bot_y),
+            ],
+            Stroke::new(1.0_f32, Color32::from_rgb(94, 94, 98)),
+        );
+
+        let header_center_y = screen_rect.min.y + header_h * 0.5_f32;
+
+        // 1. Header: DIALOGUE : <Speaker Name> on far left, #ID on far right (justified-between)
         let id_tag = format!("#{}", node_id);
-        let tag_font = FontId::proportional((10.0_f32 * zoom).max(1.0_f32));
+        let tag_font = FontId::proportional((10.5_f32 * zoom).max(1.0_f32));
         painter.text(
-            Pos2::new(screen_rect.max.x - 12.0_f32 * zoom, screen_rect.min.y + header_h * 0.5_f32),
+            Pos2::new(screen_rect.max.x - 16.0_f32 * zoom, header_center_y),
             egui::Align2::RIGHT_CENTER,
             &id_tag,
             tag_font,
-            Color32::from_rgb(140, 140, 150),
+            Color32::from_rgb(168, 168, 178),
         );
 
-        let content_rect = screen_rect.shrink(8.0_f32 * zoom);
-        let mut child_ui = ui.child_ui(content_rect, *ui.layout());
+        let header_rect = Rect::from_min_max(
+            Pos2::new(screen_rect.min.x + 16.0_f32 * zoom, screen_rect.min.y),
+            Pos2::new(screen_rect.max.x - 50.0_f32 * zoom, divider_top_y),
+        );
+        let mut header_ui = ui.child_ui(header_rect, egui::Layout::left_to_right(egui::Align::Center));
         if secondary_down {
-            child_ui.set_enabled(false);
+            header_ui.set_enabled(false);
         }
 
-        // 1. Header: DIALOGUE : <Speaker Name>
-        child_ui.horizontal(|ui| {
+        header_ui.horizontal(|ui| {
             ui.label(
                 egui::RichText::new("DIALOGUE :")
                     .font(FontId::proportional((11.5_f32 * zoom).max(1.0_f32)))
                     .strong()
-                    .color(Color32::from_rgb(220, 220, 230)),
+                    .color(Color32::from_rgb(230, 230, 235)),
             );
 
             let speaker_edit = TextEdit::singleline(speaker)
                 .font(FontId::proportional((11.5_f32 * zoom).max(1.0_f32)))
                 .text_color(Color32::from_rgb(255, 255, 255))
                 .frame(false)
-                .desired_width(140.0_f32 * zoom);
+                .desired_width(145.0_f32 * zoom);
 
             let res = ui.add(speaker_edit);
             if res.has_focus() {
@@ -393,38 +654,72 @@ fn render_dialogue_node(
             }
         });
 
-        child_ui.add_space(8.0_f32 * zoom);
+        // 2. Body Text: Multi-line centered dialogue text wrapped in quotes
+        let middle_center_y = (divider_top_y + divider_bot_y) * 0.5_f32;
+        let wrap_w = (screen_rect.width() - 56.0_f32 * zoom).max(120.0_f32);
+        let body_font = FontId::proportional((11.0_f32 * zoom).max(1.0_f32));
 
-        // 2. Body Text: Multi-line quoted dialogue copy
-        Frame::none()
-            .inner_margin(Margin::same(2.0_f32 * zoom))
-            .show(&mut child_ui, |ui| {
-                let body_edit = TextEdit::multiline(text)
-                    .font(FontId::proportional((11.0_f32 * zoom).max(1.0_f32)))
-                    .text_color(Color32::from_rgb(205, 205, 212))
-                    .frame(false)
-                    .desired_width(screen_rect.width() - 24.0_f32 * zoom)
-                    .desired_rows(4);
+        // Format quotes if not present
+        let display_text = {
+            let trimmed = text.trim();
+            if trimmed.is_empty() {
+                "“...”".to_string()
+            } else if trimmed.starts_with('“') || trimmed.starts_with('"') {
+                trimmed.to_string()
+            } else {
+                format!("“{}”", trimmed)
+            }
+        };
 
-                let res = ui.add(body_edit);
-                if res.has_focus() {
-                    is_editing = true;
-                }
-            });
+        // Layout job with strict wrap_w and center alignment
+        let mut job = egui::text::LayoutJob::default();
+        job.halign = egui::Align::Center;
+        job.wrap.max_width = wrap_w;
+        job.append(
+            &display_text,
+            0.0,
+            egui::TextFormat {
+                font_id: body_font.clone(),
+                color: Color32::from_rgb(212, 212, 220),
+                ..Default::default()
+            },
+        );
+        let galley = ui.fonts(|f| f.layout_job(job));
+        let text_pos = Pos2::new(
+            screen_rect.center().x - galley.rect.center().x,
+            middle_center_y - galley.rect.center().y,
+        );
+        painter.galley(text_pos, galley, Color32::from_rgb(212, 212, 220));
 
-        child_ui.add_space(4.0_f32 * zoom);
+        let body_rect = Rect::from_min_max(
+            Pos2::new(screen_rect.min.x + 16.0_f32 * zoom, divider_top_y),
+            Pos2::new(screen_rect.max.x - 16.0_f32 * zoom, divider_bot_y),
+        );
+        let body_response = ui.allocate_rect(body_rect, Sense::click());
+        if body_response.clicked() && interaction.hovered_port.is_none() && !is_cable_dragging {
+            interaction.clicked_node = Some(node_id);
+        }
 
-        // 3. Footer: AUDIO : <Audio File>
-        child_ui.horizontal(|ui| {
+        // 3. Footer: AUDIO : <Audio File> on far left
+        let footer_rect = Rect::from_min_max(
+            Pos2::new(screen_rect.min.x + 16.0_f32 * zoom, divider_bot_y),
+            Pos2::new(screen_rect.max.x - 16.0_f32 * zoom, screen_rect.max.y),
+        );
+        let mut footer_ui = ui.child_ui(footer_rect, egui::Layout::left_to_right(egui::Align::Center));
+        if secondary_down {
+            footer_ui.set_enabled(false);
+        }
+
+        footer_ui.horizontal(|ui| {
             ui.label(
                 egui::RichText::new("AUDIO :")
                     .font(FontId::proportional((9.5_f32 * zoom).max(1.0_f32)))
-                    .color(Color32::from_rgb(130, 130, 140)),
+                    .color(Color32::from_rgb(160, 160, 170)),
             );
 
             let audio_edit = TextEdit::singleline(audio_key)
                 .font(FontId::proportional((9.5_f32 * zoom).max(1.0_f32)))
-                .text_color(Color32::from_rgb(170, 170, 185))
+                .text_color(Color32::from_rgb(200, 200, 210))
                 .frame(false)
                 .desired_width(170.0_f32 * zoom);
 
@@ -472,38 +767,42 @@ fn render_condition_node(
 ) {
     let zoom = state.zoom;
     let is_compact = zoom < EditorNode::LOD_ZOOM_THRESHOLD;
-    let rounding = if is_compact {
-        Rounding::same((6.0_f32 * zoom).clamp(3.0_f32, 8.0_f32))
-    } else {
-        Rounding::same((8.0_f32 * zoom).clamp(4.0_f32, 12.0_f32))
-    };
-
     let painter = ui.painter().clone();
 
-    let bg_color = Color32::from_rgb(46, 46, 50);
+    let bg_color = Color32::from_rgb(76, 76, 80);
     let border_color = if selected {
-        Color32::from_rgb(220, 220, 235)
+        Color32::from_rgb(225, 225, 240)
     } else {
-        Color32::from_rgb(72, 72, 78)
+        Color32::from_rgb(98, 98, 104)
     };
     let border_width = if selected { 1.5_f32 } else { 1.0_f32 };
 
-    // Drop shadow
-    let shadow_y = if is_compact { 2.0_f32 * zoom } else { 4.0_f32 * zoom };
-    let shadow_rect = screen_rect.translate(Vec2::new(0.0_f32, shadow_y));
-    painter.rect_filled(
-        shadow_rect,
-        rounding,
-        Color32::from_black_alpha((90.0_f32 * zoom.clamp(0.5_f32, 1.2_f32)) as u8),
-    );
+    let in_port_pos = state.world_to_screen(pos + ports[0].relative_offset);
+    let true_port_pos = state.world_to_screen(pos + ports[1].relative_offset);
+    let false_port_pos = state.world_to_screen(pos + ports[2].relative_offset);
 
-    // Card background
-    painter.rect(
-        screen_rect,
-        rounding,
-        bg_color,
-        Stroke::new(border_width, border_color),
-    );
+    if is_compact {
+        // Compact LOD mode: Single-line sleek bar
+        let rounding = Rounding::same((6.0_f32 * zoom).clamp(3.0_f32, 8.0_f32));
+        let shadow = eframe::epaint::Shadow {
+            offset: Vec2::new(0.0_f32, 2.0_f32 * zoom),
+            blur: 10.0_f32 * zoom,
+            spread: 1.0_f32 * zoom,
+            color: Color32::from_black_alpha(70),
+        };
+        painter.add(
+            Frame::none()
+                .rounding(rounding)
+                .shadow(shadow)
+                .fill(Color32::TRANSPARENT)
+                .paint(screen_rect),
+        );
+        painter.rect(screen_rect, rounding, bg_color, Stroke::new(border_width, border_color));
+    } else {
+        // Full detail mode: Notched card polygon with ambient shadow
+        let vertices = build_condition_polygon(screen_rect, in_port_pos.y, zoom);
+        paint_card_shape(&painter, screen_rect, &vertices, bg_color, border_color, border_width, zoom);
+    }
 
     let card_response = ui.allocate_rect(screen_rect, Sense::click());
     let mut is_editing = false;
@@ -516,7 +815,7 @@ fn render_condition_node(
             egui::Align2::LEFT_CENTER,
             "BRANCH",
             title_font,
-            Color32::from_rgb(220, 220, 230),
+            Color32::from_rgb(230, 230, 235),
         );
 
         let id_tag = format!("#{}", node_id);
@@ -526,119 +825,135 @@ fn render_condition_node(
             egui::Align2::RIGHT_CENTER,
             &id_tag,
             tag_font,
-            Color32::from_rgb(140, 140, 150),
+            Color32::from_rgb(168, 168, 178),
         );
     } else {
-        // Full detail mode: Top header banner + divider + expression block + bifurcation curves
-        let header_h = 28.0_f32 * zoom;
-        let divider_y = screen_rect.min.y + header_h;
-        painter.line_segment(
-            [
-                Pos2::new(screen_rect.min.x, divider_y),
-                Pos2::new(screen_rect.max.x, divider_y),
-            ],
-            Stroke::new(1.0_f32, Color32::from_rgb(62, 62, 68)),
+        // Full detail mode matching Mockup 2:
+        // Left notch -> Stem wire -> Inline [ VARIABLE ] == [ VALUE ] -> Bifurcation Béziers -> TRUE / FALSE
+        let center_y = screen_rect.center().y;
+        let wire_stroke = Stroke::new(1.3_f32 * zoom, Color32::from_rgb(216, 216, 222));
+
+        // 1. Incoming horizontal stem wire from left notch
+        let stem_start = Pos2::new(screen_rect.min.x + EditorNode::NOTCH_DEPTH * zoom, center_y);
+        let expr_start_x = stem_start.x + 18.0_f32 * zoom;
+        painter.line_segment([stem_start, Pos2::new(expr_start_x, center_y)], wire_stroke);
+
+        // 2. Single-line inline expression: [ VARIABLE ] == [ VALUE ]
+        let expr_rect = Rect::from_min_max(
+            Pos2::new(expr_start_x + 2.0_f32 * zoom, center_y - 14.0_f32 * zoom),
+            Pos2::new(screen_rect.max.x - 72.0_f32 * zoom, center_y + 14.0_f32 * zoom),
         );
 
-        // Header Title: BRANCH
-        let title_font = FontId::proportional((11.0_f32 * zoom).max(1.0_f32));
-        painter.text(
-            Pos2::new(screen_rect.min.x + 12.0_f32 * zoom, screen_rect.min.y + header_h * 0.5_f32),
-            egui::Align2::LEFT_CENTER,
-            "BRANCH",
-            title_font,
-            Color32::from_rgb(220, 220, 230),
-        );
-
-        // Header ID tag: #<id>
-        let id_tag = format!("#{}", node_id);
-        let tag_font = FontId::proportional((10.0_f32 * zoom).max(1.0_f32));
-        painter.text(
-            Pos2::new(screen_rect.max.x - 12.0_f32 * zoom, screen_rect.min.y + header_h * 0.5_f32),
-            egui::Align2::RIGHT_CENTER,
-            &id_tag,
-            tag_font,
-            Color32::from_rgb(140, 140, 150),
-        );
-
-        // Center evaluation block
-        let eval_center_x = screen_rect.min.x + screen_rect.width() * 0.40_f32;
-        let eval_center_y = screen_rect.min.y + header_h + (screen_rect.height() - header_h) * 0.5_f32;
-        let expr_box_w = 110.0_f32 * zoom;
-        let expr_box_h = 56.0_f32 * zoom;
-        let expr_rect = Rect::from_center_size(
-            Pos2::new(eval_center_x, eval_center_y),
-            Vec2::new(expr_box_w, expr_box_h),
-        );
-
-        // Render the editable expression inputs inside expr_rect
-        let mut child_ui = ui.child_ui(expr_rect, *ui.layout());
+        let mut expr_ui = ui.child_ui(expr_rect, *ui.layout());
         if secondary_down {
-            child_ui.set_enabled(false);
+            expr_ui.set_enabled(false);
         }
 
-        child_ui.vertical_centered(|ui| {
+        let mut expr_end_x = expr_start_x + 90.0_f32 * zoom;
+
+        expr_ui.horizontal_centered(|ui| {
+            ui.spacing_mut().item_spacing = Vec2::new(3.0_f32 * zoom, 0.0);
+            let font = FontId::monospace((10.0_f32 * zoom).max(1.0_f32));
+
+            let var_width = if variable.is_empty() {
+                68.0_f32 * zoom
+            } else {
+                (ui.fonts(|f| f.layout_no_wrap(variable.clone(), font.clone(), Color32::WHITE).size().x) + 8.0_f32 * zoom)
+                    .clamp(30.0_f32 * zoom, 75.0_f32 * zoom)
+            };
             let var_edit = TextEdit::singleline(variable)
-                .font(FontId::monospace((10.0_f32 * zoom).max(1.0_f32)))
-                .text_color(Color32::from_rgb(180, 210, 245))
+                .font(font.clone())
+                .text_color(Color32::from_rgb(255, 255, 255))
                 .hint_text("[ VARIABLE ]")
                 .frame(false)
-                .desired_width(expr_box_w);
+                .desired_width(var_width);
             if ui.add(var_edit).has_focus() {
                 is_editing = true;
             }
 
+            let op_width = if operator.is_empty() {
+                18.0_f32 * zoom
+            } else {
+                (ui.fonts(|f| f.layout_no_wrap(operator.clone(), font.clone(), Color32::WHITE).size().x) + 6.0_f32 * zoom)
+                    .clamp(14.0_f32 * zoom, 28.0_f32 * zoom)
+            };
             let op_edit = TextEdit::singleline(operator)
-                .font(FontId::monospace((10.0_f32 * zoom).max(1.0_f32)))
-                .text_color(Color32::from_rgb(245, 195, 120))
-                .hint_text("[ RELATIONAL OPERATOR ]")
+                .font(font.clone())
+                .text_color(Color32::from_rgb(216, 216, 222))
+                .hint_text("==")
                 .frame(false)
-                .desired_width(expr_box_w);
+                .desired_width(op_width);
             if ui.add(op_edit).has_focus() {
                 is_editing = true;
             }
 
+            let val_width = if value.is_empty() {
+                54.0_f32 * zoom
+            } else {
+                (ui.fonts(|f| f.layout_no_wrap(value.clone(), font.clone(), Color32::WHITE).size().x) + 8.0_f32 * zoom)
+                    .clamp(24.0_f32 * zoom, 65.0_f32 * zoom)
+            };
             let val_edit = TextEdit::singleline(value)
-                .font(FontId::monospace((10.0_f32 * zoom).max(1.0_f32)))
-                .text_color(Color32::from_rgb(150, 235, 160))
+                .font(font.clone())
+                .text_color(Color32::from_rgb(255, 255, 255))
                 .hint_text("[ VALUE ]")
                 .frame(false)
-                .desired_width(expr_box_w);
+                .desired_width(val_width);
             if ui.add(val_edit).has_focus() {
                 is_editing = true;
             }
+
+            expr_end_x = ui.cursor().min.x;
         });
 
-        // Procedural Internal Bézier Bifurcation!
-        let branch_origin = Pos2::new(expr_rect.max.x + 2.0_f32 * zoom, eval_center_y);
+        // 3. Procedural Internal Bézier Bifurcation!
+        let fork_origin = Pos2::new(expr_end_x + 2.0_f32 * zoom, center_y);
+        painter.line_segment([Pos2::new(expr_end_x, center_y), fork_origin], wire_stroke);
 
-        let true_port_pos = state.world_to_screen(pos + ports[1].relative_offset);
-        let false_port_pos = state.world_to_screen(pos + ports[2].relative_offset);
+        let true_label_x = screen_rect.max.x - 38.0_f32 * zoom;
+        let true_target = Pos2::new(true_label_x - 8.0_f32 * zoom, true_port_pos.y);
+        let false_target = Pos2::new(true_label_x - 8.0_f32 * zoom, false_port_pos.y);
 
-        let true_target = Pos2::new(screen_rect.max.x - 42.0_f32 * zoom, true_port_pos.y);
-        let false_target = Pos2::new(screen_rect.max.x - 44.0_f32 * zoom, false_port_pos.y);
-
-        let curve_stroke = Stroke::new(1.3_f32 * zoom, Color32::from_rgb(185, 185, 195));
+        let dx = (true_target.x - fork_origin.x).max(10.0_f32 * zoom);
 
         // Bézier branch to TRUE
-        let cp1_true = Pos2::new(branch_origin.x + 18.0_f32 * zoom, branch_origin.y);
-        let cp2_true = Pos2::new(true_target.x - 18.0_f32 * zoom, true_target.y);
+        let cp1_true = Pos2::new(fork_origin.x + dx * 0.50_f32, fork_origin.y);
+        let cp2_true = Pos2::new(fork_origin.x + dx * 0.50_f32, true_target.y);
         painter.add(CubicBezierShape::from_points_stroke(
-            [branch_origin, cp1_true, cp2_true, true_target],
+            [fork_origin, cp1_true, cp2_true, true_target],
             false,
             Color32::TRANSPARENT,
-            curve_stroke,
+            wire_stroke,
         ));
+        painter.line_segment([true_target, Pos2::new(true_label_x - 2.0_f32 * zoom, true_target.y)], wire_stroke);
 
         // Bézier branch to FALSE
-        let cp1_false = Pos2::new(branch_origin.x + 18.0_f32 * zoom, branch_origin.y);
-        let cp2_false = Pos2::new(false_target.x - 18.0_f32 * zoom, false_target.y);
+        let cp1_false = Pos2::new(fork_origin.x + dx * 0.50_f32, fork_origin.y);
+        let cp2_false = Pos2::new(fork_origin.x + dx * 0.50_f32, false_target.y);
         painter.add(CubicBezierShape::from_points_stroke(
-            [branch_origin, cp1_false, cp2_false, false_target],
+            [fork_origin, cp1_false, cp2_false, false_target],
             false,
             Color32::TRANSPARENT,
-            curve_stroke,
+            wire_stroke,
         ));
+        painter.line_segment([false_target, Pos2::new(true_label_x - 2.0_f32 * zoom, false_target.y)], wire_stroke);
+
+        // TRUE and FALSE labels in clean white text
+        let label_font = FontId::proportional((9.5_f32 * zoom).max(1.0_f32));
+        painter.text(
+            Pos2::new(true_label_x, true_port_pos.y),
+            egui::Align2::LEFT_CENTER,
+            "TRUE",
+            label_font.clone(),
+            Color32::from_rgb(224, 224, 230),
+        );
+        painter.text(
+            Pos2::new(true_label_x, false_port_pos.y),
+            egui::Align2::LEFT_CENTER,
+            "FALSE",
+            label_font,
+            Color32::from_rgb(224, 224, 230),
+        );
     }
 
     // Fallback card click selection
