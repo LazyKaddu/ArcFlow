@@ -139,3 +139,31 @@ fn test_zoom_lod_dialogue_node_invariants() {
     assert_eq!(dialogue_node.ports[0].relative_offset.y, 50.0);
     assert_eq!(dialogue_node.ports[1].relative_offset.y, dialogue_node.size.y * 0.52);
 }
+
+#[test]
+fn test_zoom_lod_condition_node_invariants() {
+    let mut graph = Graph::default_demo_graph();
+    let condition_node = graph.nodes.iter_mut().find(|n| matches!(n.data, ArcFlow::core::graph::NodeData::Condition { .. })).unwrap();
+
+    // 1. Zoom 1.0 (Full view)
+    condition_node.update_lod(1.0, None);
+    assert_eq!(condition_node.size.y, ArcFlow::core::graph::EditorNode::DEFAULT_CONDITION_SIZE.y);
+    assert_eq!(condition_node.ports[0].relative_offset.y, condition_node.size.y * 0.5);
+    assert_eq!(condition_node.ports[1].relative_offset.y, 32.0);
+    assert_eq!(condition_node.ports[2].relative_offset.y, condition_node.size.y - 32.0);
+
+    // 2. Zoom 0.5 (Compact LOD view)
+    condition_node.update_lod(0.5, None);
+    assert_eq!(condition_node.size.y, ArcFlow::core::graph::EditorNode::COMPACT_CONDITION_HEIGHT);
+    let expected_center_y = ArcFlow::core::graph::EditorNode::COMPACT_CONDITION_HEIGHT * 0.5;
+    assert_eq!(condition_node.ports[0].relative_offset.y, expected_center_y);
+    assert_eq!(condition_node.ports[1].relative_offset.y, 15.0);
+    assert_eq!(condition_node.ports[2].relative_offset.y, ArcFlow::core::graph::EditorNode::COMPACT_CONDITION_HEIGHT - 15.0);
+
+    // 3. Zoom back to 1.0 (Expands back to full view)
+    condition_node.update_lod(1.0, None);
+    assert_eq!(condition_node.size.y, ArcFlow::core::graph::EditorNode::DEFAULT_CONDITION_SIZE.y);
+    assert_eq!(condition_node.ports[0].relative_offset.y, condition_node.size.y * 0.5);
+    assert_eq!(condition_node.ports[1].relative_offset.y, 32.0);
+    assert_eq!(condition_node.ports[2].relative_offset.y, condition_node.size.y - 32.0);
+}

@@ -229,7 +229,7 @@ pub fn paint_capsule_port(
     }
 
     // Optional port label if it's named (like TRUE / FALSE on condition node)
-    if !port.name.is_empty() && port.name != "In" && port.name != "Out" {
+    if zoom >= EditorNode::LOD_ZOOM_THRESHOLD && !port.name.is_empty() && port.name != "In" && port.name != "Out" {
         let label_font = FontId::proportional((9.0_f32 * zoom).clamp(8.0_f32, 12.0_f32));
         let text_color = if port.name == "TRUE" {
             Color32::from_rgb(120, 220, 140)
@@ -471,7 +471,12 @@ fn render_condition_node(
     is_cable_dragging: bool,
 ) {
     let zoom = state.zoom;
-    let rounding = Rounding::same((8.0_f32 * zoom).clamp(4.0_f32, 12.0_f32));
+    let is_compact = zoom < EditorNode::LOD_ZOOM_THRESHOLD;
+    let rounding = if is_compact {
+        Rounding::same((6.0_f32 * zoom).clamp(3.0_f32, 8.0_f32))
+    } else {
+        Rounding::same((8.0_f32 * zoom).clamp(4.0_f32, 12.0_f32))
+    };
 
     let painter = ui.painter().clone();
 
@@ -484,7 +489,8 @@ fn render_condition_node(
     let border_width = if selected { 1.5_f32 } else { 1.0_f32 };
 
     // Drop shadow
-    let shadow_rect = screen_rect.translate(Vec2::new(0.0_f32, 4.0_f32 * zoom));
+    let shadow_y = if is_compact { 2.0_f32 * zoom } else { 4.0_f32 * zoom };
+    let shadow_rect = screen_rect.translate(Vec2::new(0.0_f32, shadow_y));
     painter.rect_filled(
         shadow_rect,
         rounding,
@@ -502,86 +508,138 @@ fn render_condition_node(
     let card_response = ui.allocate_rect(screen_rect, Sense::click());
     let mut is_editing = false;
 
-    // Center evaluation block
-    let eval_center_x = screen_rect.min.x + screen_rect.width() * 0.40_f32;
-    let eval_center_y = screen_rect.center().y;
-    let expr_box_w = 110.0_f32 * zoom;
-    let expr_box_h = 56.0_f32 * zoom;
-    let expr_rect = Rect::from_center_size(
-        Pos2::new(eval_center_x, eval_center_y),
-        Vec2::new(expr_box_w, expr_box_h),
-    );
+    if is_compact {
+        // Compact LOD mode: Only display 'BRANCH' title and '#ID' tag
+        let title_font = FontId::proportional((11.5_f32 * zoom).clamp(9.0_f32, 14.0_f32));
+        painter.text(
+            Pos2::new(screen_rect.min.x + 14.0_f32 * zoom, screen_rect.center().y),
+            egui::Align2::LEFT_CENTER,
+            "BRANCH",
+            title_font,
+            Color32::from_rgb(220, 220, 230),
+        );
 
-    // Render the editable expression inputs inside expr_rect
-    let mut child_ui = ui.child_ui(expr_rect, *ui.layout());
-    // Disable expression inputs child_ui during right-click so right-drag never interacts with text fields
-    if secondary_down {
-        child_ui.set_enabled(false);
+        let id_tag = format!("#{}", node_id);
+        let tag_font = FontId::proportional((10.0_f32 * zoom).clamp(8.0_f32, 13.0_f32));
+        painter.text(
+            Pos2::new(screen_rect.max.x - 12.0_f32 * zoom, screen_rect.center().y),
+            egui::Align2::RIGHT_CENTER,
+            &id_tag,
+            tag_font,
+            Color32::from_rgb(140, 140, 150),
+        );
+    } else {
+        // Full detail mode: Top header banner + divider + expression block + bifurcation curves
+        let header_h = 28.0_f32 * zoom;
+        let divider_y = screen_rect.min.y + header_h;
+        painter.line_segment(
+            [
+                Pos2::new(screen_rect.min.x, divider_y),
+                Pos2::new(screen_rect.max.x, divider_y),
+            ],
+            Stroke::new(1.0_f32, Color32::from_rgb(62, 62, 68)),
+        );
+
+        // Header Title: BRANCH
+        let title_font = FontId::proportional((11.0_f32 * zoom).clamp(8.5_f32, 13.5_f32));
+        painter.text(
+            Pos2::new(screen_rect.min.x + 12.0_f32 * zoom, screen_rect.min.y + header_h * 0.5_f32),
+            egui::Align2::LEFT_CENTER,
+            "BRANCH",
+            title_font,
+            Color32::from_rgb(220, 220, 230),
+        );
+
+        // Header ID tag: #<id>
+        let id_tag = format!("#{}", node_id);
+        let tag_font = FontId::proportional((10.0_f32 * zoom).clamp(8.0_f32, 13.0_f32));
+        painter.text(
+            Pos2::new(screen_rect.max.x - 12.0_f32 * zoom, screen_rect.min.y + header_h * 0.5_f32),
+            egui::Align2::RIGHT_CENTER,
+            &id_tag,
+            tag_font,
+            Color32::from_rgb(140, 140, 150),
+        );
+
+        // Center evaluation block
+        let eval_center_x = screen_rect.min.x + screen_rect.width() * 0.40_f32;
+        let eval_center_y = screen_rect.min.y + header_h + (screen_rect.height() - header_h) * 0.5_f32;
+        let expr_box_w = 110.0_f32 * zoom;
+        let expr_box_h = 56.0_f32 * zoom;
+        let expr_rect = Rect::from_center_size(
+            Pos2::new(eval_center_x, eval_center_y),
+            Vec2::new(expr_box_w, expr_box_h),
+        );
+
+        // Render the editable expression inputs inside expr_rect
+        let mut child_ui = ui.child_ui(expr_rect, *ui.layout());
+        if secondary_down {
+            child_ui.set_enabled(false);
+        }
+
+        child_ui.vertical_centered(|ui| {
+            let var_edit = TextEdit::singleline(variable)
+                .font(FontId::monospace((10.0_f32 * zoom).clamp(8.0_f32, 12.5_f32)))
+                .text_color(Color32::from_rgb(180, 210, 245))
+                .hint_text("[ VARIABLE ]")
+                .frame(false)
+                .desired_width(expr_box_w);
+            if ui.add(var_edit).has_focus() {
+                is_editing = true;
+            }
+
+            let op_edit = TextEdit::singleline(operator)
+                .font(FontId::monospace((10.0_f32 * zoom).clamp(8.0_f32, 12.5_f32)))
+                .text_color(Color32::from_rgb(245, 195, 120))
+                .hint_text("[ RELATIONAL OPERATOR ]")
+                .frame(false)
+                .desired_width(expr_box_w);
+            if ui.add(op_edit).has_focus() {
+                is_editing = true;
+            }
+
+            let val_edit = TextEdit::singleline(value)
+                .font(FontId::monospace((10.0_f32 * zoom).clamp(8.0_f32, 12.5_f32)))
+                .text_color(Color32::from_rgb(150, 235, 160))
+                .hint_text("[ VALUE ]")
+                .frame(false)
+                .desired_width(expr_box_w);
+            if ui.add(val_edit).has_focus() {
+                is_editing = true;
+            }
+        });
+
+        // Procedural Internal Bézier Bifurcation!
+        let branch_origin = Pos2::new(expr_rect.max.x + 2.0_f32 * zoom, eval_center_y);
+
+        let true_port_pos = state.world_to_screen(pos + ports[1].relative_offset);
+        let false_port_pos = state.world_to_screen(pos + ports[2].relative_offset);
+
+        let true_target = Pos2::new(screen_rect.max.x - 42.0_f32 * zoom, true_port_pos.y);
+        let false_target = Pos2::new(screen_rect.max.x - 44.0_f32 * zoom, false_port_pos.y);
+
+        let curve_stroke = Stroke::new(1.3_f32 * zoom, Color32::from_rgb(185, 185, 195));
+
+        // Bézier branch to TRUE
+        let cp1_true = Pos2::new(branch_origin.x + 18.0_f32 * zoom, branch_origin.y);
+        let cp2_true = Pos2::new(true_target.x - 18.0_f32 * zoom, true_target.y);
+        painter.add(CubicBezierShape::from_points_stroke(
+            [branch_origin, cp1_true, cp2_true, true_target],
+            false,
+            Color32::TRANSPARENT,
+            curve_stroke,
+        ));
+
+        // Bézier branch to FALSE
+        let cp1_false = Pos2::new(branch_origin.x + 18.0_f32 * zoom, branch_origin.y);
+        let cp2_false = Pos2::new(false_target.x - 18.0_f32 * zoom, false_target.y);
+        painter.add(CubicBezierShape::from_points_stroke(
+            [branch_origin, cp1_false, cp2_false, false_target],
+            false,
+            Color32::TRANSPARENT,
+            curve_stroke,
+        ));
     }
-
-    child_ui.vertical_centered(|ui| {
-        let var_edit = TextEdit::singleline(variable)
-            .font(FontId::monospace((10.0_f32 * zoom).clamp(8.0_f32, 12.5_f32)))
-            .text_color(Color32::from_rgb(180, 210, 245))
-            .hint_text("[ VARIABLE ]")
-            .frame(false)
-            .desired_width(expr_box_w);
-        if ui.add(var_edit).has_focus() {
-            is_editing = true;
-        }
-
-        let op_edit = TextEdit::singleline(operator)
-            .font(FontId::monospace((10.0_f32 * zoom).clamp(8.0_f32, 12.5_f32)))
-            .text_color(Color32::from_rgb(245, 195, 120))
-            .hint_text("[ RELATIONAL OPERATOR ]")
-            .frame(false)
-            .desired_width(expr_box_w);
-        if ui.add(op_edit).has_focus() {
-            is_editing = true;
-        }
-
-        let val_edit = TextEdit::singleline(value)
-            .font(FontId::monospace((10.0_f32 * zoom).clamp(8.0_f32, 12.5_f32)))
-            .text_color(Color32::from_rgb(150, 235, 160))
-            .hint_text("[ VALUE ]")
-            .frame(false)
-            .desired_width(expr_box_w);
-        if ui.add(val_edit).has_focus() {
-            is_editing = true;
-        }
-    });
-
-    // Procedural Internal Bézier Bifurcation!
-    // Splitting from right of expression block to TRUE port (port 1) and FALSE port (port 2)
-    let branch_origin = Pos2::new(expr_rect.max.x + 2.0_f32 * zoom, eval_center_y);
-
-    let true_port_pos = state.world_to_screen(pos + ports[1].relative_offset);
-    let false_port_pos = state.world_to_screen(pos + ports[2].relative_offset);
-
-    let true_target = Pos2::new(screen_rect.max.x - 42.0_f32 * zoom, true_port_pos.y);
-    let false_target = Pos2::new(screen_rect.max.x - 44.0_f32 * zoom, false_port_pos.y);
-
-    let curve_stroke = Stroke::new(1.3_f32 * zoom, Color32::from_rgb(185, 185, 195));
-
-    // Bézier branch to TRUE
-    let cp1_true = Pos2::new(branch_origin.x + 18.0_f32 * zoom, branch_origin.y);
-    let cp2_true = Pos2::new(true_target.x - 18.0_f32 * zoom, true_target.y);
-    painter.add(CubicBezierShape::from_points_stroke(
-        [branch_origin, cp1_true, cp2_true, true_target],
-        false,
-        Color32::TRANSPARENT,
-        curve_stroke,
-    ));
-
-    // Bézier branch to FALSE
-    let cp1_false = Pos2::new(branch_origin.x + 18.0_f32 * zoom, branch_origin.y);
-    let cp2_false = Pos2::new(false_target.x - 18.0_f32 * zoom, false_target.y);
-    painter.add(CubicBezierShape::from_points_stroke(
-        [branch_origin, cp1_false, cp2_false, false_target],
-        false,
-        Color32::TRANSPARENT,
-        curve_stroke,
-    ));
 
     // Fallback card click selection
     if (card_response.clicked() || (primary_clicked && card_response.hovered()))
