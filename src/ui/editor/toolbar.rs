@@ -27,33 +27,32 @@ pub fn render_floating_toolbar(
 
     Area::new(Id::new("floating_toolbar_capsule"))
         .order(Order::Foreground)
-        .anchor(Align2::CENTER_TOP, Vec2::new(0.0_f32, 16.0_f32))
+        .anchor(Align2::CENTER_TOP, Vec2::new(0.0_f32, 14.0_f32))
         .show(ctx, |ui| {
             Frame::none()
-                .fill(Color32::from_rgb(40, 40, 44))
-                .stroke(Stroke::new(1.0_f32, Color32::from_rgb(65, 65, 72)))
-                .rounding(Rounding::same(20.0_f32))
-                .inner_margin(Margin::symmetric(14.0_f32, 6.0_f32))
+                .fill(Color32::from_rgb(76, 76, 80))
+                .stroke(Stroke::new(1.0_f32, Color32::from_rgb(94, 94, 100)))
+                .rounding(Rounding::same(12.0_f32))
+                .inner_margin(Margin::symmetric(16.0_f32, 7.0_f32))
                 .shadow(eframe::epaint::Shadow {
-                    offset: Vec2::new(0.0_f32, 4.0_f32),
+                    offset: Vec2::new(0.0_f32, 3.0_f32),
                     blur: 16.0_f32,
                     spread: 1.0_f32,
-                    color: Color32::from_black_alpha(150),
+                    color: Color32::from_black_alpha(100),
                 })
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing = Vec2::new(10.0_f32, 0.0_f32);
+                        ui.spacing_mut().item_spacing = Vec2::new(16.0_f32, 0.0_f32);
 
-                        // 1. Project Title Pill
+                        // 1. Project Title
                         let dirty_suffix = if is_dirty { " *" } else { "" };
                         let display_title = format!("{}{}", project_name, dirty_suffix);
 
                         let title_response = ui.add(
                             egui::Button::new(
                                 egui::RichText::new(&display_title)
-                                    .font(FontId::proportional(12.5_f32))
-                                    .color(Color32::from_rgb(220, 220, 230))
-                                    .strong(),
+                                    .font(FontId::proportional(13.5_f32))
+                                    .color(Color32::from_rgb(235, 235, 240)),
                             )
                             .frame(false),
                         );
@@ -62,80 +61,79 @@ pub fn render_floating_toolbar(
                         }
                         title_response.on_hover_text("Click to return to Dashboard");
 
-                        // Divider
-                        ui.add(egui::Separator::default().vertical());
-
-                        // 2. Action Icons (Save, Undo, Redo)
-                        // Save Icon
-                        let save_btn = ui.add(
-                            egui::Button::new(
-                                egui::RichText::new("💾")
-                                    .font(FontId::proportional(13.0_f32))
-                                    .color(Color32::from_rgb(200, 200, 210)),
-                            )
-                            .frame(false),
+                        // Vertical divider line matching mockup
+                        let (sep_rect, _) = ui.allocate_exact_size(Vec2::new(1.0_f32, 22.0_f32), egui::Sense::hover());
+                        ui.painter().line_segment(
+                            [sep_rect.center_top(), sep_rect.center_bottom()],
+                            Stroke::new(0.4_f32, Color32::from_rgb(165, 165, 165)),
                         );
-                        if save_btn.clicked() {
+
+                        // 2. Action Icons (Save, Undo, Redo from assets)
+                        // Save Icon (assets/save.svg)
+                        let (save_rect, save_resp) = ui.allocate_exact_size(Vec2::new(20.0_f32, 20.0_f32), egui::Sense::click());
+                        let save_tint = if save_resp.hovered() {
+                            Color32::WHITE
+                        } else {
+                            Color32::from_rgb(220, 220, 230)
+                        };
+                        egui::Image::new(egui::include_image!("../../../assets/save.svg"))
+                            .fit_to_exact_size(Vec2::new(18.0_f32, 18.0_f32))
+                            .tint(save_tint)
+                            .paint_at(ui, save_rect);
+                        if save_resp.clicked() {
                             actions.save_clicked = true;
                         }
-                        save_btn.on_hover_text("Save Project (Ctrl+S)");
+                        save_resp.on_hover_text("Save Project (Ctrl+S)");
 
-                        // Undo Icon
-                        let undo_color = if can_undo {
-                            Color32::from_rgb(200, 200, 210)
+                        // Undo Icon (assets/undo.svg)
+                        let (undo_rect, undo_resp) = ui.allocate_exact_size(Vec2::new(22.0_f32, 20.0_f32), egui::Sense::click());
+                        let undo_tint = if !can_undo {
+                            Color32::from_rgb(140, 140, 150)
+                        } else if undo_resp.hovered() {
+                            Color32::WHITE
                         } else {
-                            Color32::from_rgb(100, 100, 110)
+                            Color32::from_rgb(220, 220, 230)
                         };
-                        let undo_btn = ui.add_enabled(
-                            can_undo,
-                            egui::Button::new(
-                                egui::RichText::new("↺")
-                                    .font(FontId::proportional(15.0_f32))
-                                    .color(undo_color),
-                            )
-                            .frame(false),
-                        );
-                        if undo_btn.clicked() {
+                        egui::Image::new(egui::include_image!("../../../assets/undo.svg"))
+                            .fit_to_exact_size(Vec2::new(19.0_f32, 14.0_f32))
+                            .tint(undo_tint)
+                            .paint_at(ui, undo_rect);
+                        if undo_resp.clicked() && can_undo {
                             actions.undo_clicked = true;
                         }
-                        undo_btn.on_hover_text("Undo (Ctrl+Z)");
+                        undo_resp.on_hover_text("Undo (Ctrl+Z)");
 
-                        // Redo Icon
-                        let redo_color = if can_redo {
-                            Color32::from_rgb(200, 200, 210)
+                        // Redo Icon (assets/redo.svg)
+                        let (redo_rect, redo_resp) = ui.allocate_exact_size(Vec2::new(22.0_f32, 20.0_f32), egui::Sense::click());
+                        let redo_tint = if !can_redo {
+                            Color32::from_rgb(140, 140, 150)
+                        } else if redo_resp.hovered() {
+                            Color32::WHITE
                         } else {
-                            Color32::from_rgb(100, 100, 110)
+                            Color32::from_rgb(220, 220, 230)
                         };
-                        let redo_btn = ui.add_enabled(
-                            can_redo,
-                            egui::Button::new(
-                                egui::RichText::new("↻")
-                                    .font(FontId::proportional(15.0_f32))
-                                    .color(redo_color),
-                            )
-                            .frame(false),
-                        );
-                        if redo_btn.clicked() {
+                        egui::Image::new(egui::include_image!("../../../assets/redo.svg"))
+                            .fit_to_exact_size(Vec2::new(19.0_f32, 14.0_f32))
+                            .tint(redo_tint)
+                            .paint_at(ui, redo_rect);
+                        if redo_resp.clicked() && can_redo {
                             actions.redo_clicked = true;
                         }
-                        redo_btn.on_hover_text("Redo (Ctrl+Y)");
+                        redo_resp.on_hover_text("Redo (Ctrl+Y)");
 
-                        // Divider
-                        ui.add(egui::Separator::default().vertical());
-
-                        // 3. Search Palette (Find ...)
+                        // 3. Search Palette (Find ...) pill
                         Frame::none()
-                            .fill(Color32::from_rgb(30, 30, 33))
-                            .stroke(Stroke::new(0.5_f32, Color32::from_rgb(55, 55, 62)))
-                            .rounding(Rounding::same(12.0_f32))
-                            .inner_margin(Margin::symmetric(10.0_f32, 4.0_f32))
+                            .fill(Color32::from_rgb(66, 66, 70))
+                            .stroke(Stroke::new(1.0_f32, Color32::from_rgb(105, 105, 112)))
+                            .rounding(Rounding::same(8.0_f32))
+                            .inner_margin(Margin::symmetric(12.0_f32, 5.0_f32))
                             .show(ui, |ui| {
                                 let search_edit = TextEdit::singleline(search_query)
-                                    .font(FontId::proportional(11.5_f32))
-                                    .text_color(Color32::from_rgb(220, 220, 230))
+                                    .font(FontId::proportional(12.5_f32))
+                                    .text_color(Color32::from_rgb(240, 240, 245))
                                     .hint_text("Find ...")
                                     .frame(false)
-                                    .desired_width(135.0_f32);
+                                    .desired_width(200.0_f32);
 
                                 let res = ui.add(search_edit);
                                 if res.changed() {
@@ -143,20 +141,15 @@ pub fn render_floating_toolbar(
                                 }
                             });
 
-                        // Divider
-                        ui.add(egui::Separator::default().vertical());
-
-                        // 4. High-contrast EXPORT Button
+                        // 4. Clean EXPORT Button
                         let export_btn = ui.add(
                             egui::Button::new(
                                 egui::RichText::new("EXPORT")
-                                    .font(FontId::proportional(11.5_f32))
+                                    .font(FontId::proportional(13.0_f32))
                                     .strong()
                                     .color(Color32::from_rgb(240, 240, 245)),
                             )
-                            .fill(Color32::from_rgb(52, 52, 58))
-                            .stroke(Stroke::new(1.0_f32, Color32::from_rgb(85, 85, 95)))
-                            .rounding(Rounding::same(14.0_f32)),
+                            .frame(false),
                         );
                         if export_btn.clicked() {
                             actions.export_clicked = true;

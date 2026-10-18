@@ -235,14 +235,13 @@ pub fn render_frustum_culled_dot_grid(ui: &Ui, painter: &Painter, state: &Canvas
     let start_y = (min_y / step).floor() as i32 - 1;
     let end_y = (max_y / step).ceil() as i32 + 1;
 
-    // Visual appearance matching dark editor viewport
-    // Charcoal background fill: #3f3f43
-    let bg_color = Color32::from_rgb(63, 63, 67);
+    // Canvas background fill: rgb(99, 98, 98)
+    let bg_color = Color32::from_rgb(99, 98, 98);
     painter.rect_filled(clip_rect, 0.0, bg_color);
 
     let dot_radius = (1.1 * state.zoom).clamp(0.7, 1.8);
-    // Subtle regular dot grid with soft contrast: rgba(220, 220, 228, 45)
-    let dot_color = Color32::from_rgba_unmultiplied(220, 220, 228, 48);
+    // Grid dots with 20% opacity (alpha = 51 out of 255)
+    let dot_color = Color32::from_rgba_unmultiplied(255, 255, 255, 51);
 
     for gx in start_x..=end_x {
         let wx = gx as f32 * step;

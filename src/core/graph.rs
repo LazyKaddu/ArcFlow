@@ -1,5 +1,5 @@
 //! The core narrative graph data structures and node models.
-use eframe::egui::{Pos2, Vec2};
+use eframe::egui::{Color32, Context, FontId, Pos2, Vec2};
 
 /// Specifies the directionality of a node port.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -65,9 +65,13 @@ pub struct EditorNode {
 }
 
 impl EditorNode {
-    pub const DEFAULT_DIALOGUE_SIZE: Vec2 = Vec2::new(315.0, 185.0);
-    pub const DEFAULT_CONDITION_SIZE: Vec2 = Vec2::new(235.0, 125.0);
+    pub const DEFAULT_DIALOGUE_SIZE: Vec2 = Vec2::new(340.0, 215.0);
+    pub const COMPACT_DIALOGUE_HEIGHT: f32 = 46.0;
+    pub const DEFAULT_CONDITION_SIZE: Vec2 = Vec2::new(280.0, 140.0);
+    pub const COMPACT_CONDITION_HEIGHT: f32 = 56.0;
     pub const DEFAULT_ANCHOR_SIZE: Vec2 = Vec2::new(20.0, 20.0);
+    pub const LOD_ZOOM_THRESHOLD: f32 = 0.65;
+    pub const NOTCH_DEPTH: f32 = 8.0;
 
     pub fn new(id: usize, data: NodeData, pos: Pos2) -> Self {
         let size = match &data {
@@ -89,47 +93,113 @@ impl EditorNode {
         node
     }
 
+    /// Updates node height and port positioning based on camera zoom Level of Detail (LOD).
+    pub fn update_lod(&mut self, zoom: f32, ctx: Option<&Context>) {
+        match &self.data {
+            NodeData::Dialogue { text, .. } => {
+                if zoom < Self::LOD_ZOOM_THRESHOLD {
+                    self.size.y = Self::COMPACT_DIALOGUE_HEIGHT;
+                    if self.ports.len() >= 2 {
+                        self.ports[0].relative_offset = Vec2::new(Self::NOTCH_DEPTH, Self::COMPACT_DIALOGUE_HEIGHT * 0.5);
+                        self.ports[1].relative_offset = Vec2::new(self.size.x - Self::NOTCH_DEPTH, Self::COMPACT_DIALOGUE_HEIGHT * 0.5);
+                    }
+                } else {
+                    let text_h = if let Some(ctx) = ctx {
+                        let font_id = FontId::proportional(11.0);
+                        let wrap_width = Self::DEFAULT_DIALOGUE_SIZE.x - 36.0;
+                        ctx.fonts(|f| f.layout(text.clone(), font_id, Color32::WHITE, wrap_width).size().y)
+                    } else {
+                        let lines = text.lines().count().max(1);
+                        (lines as f32) * 16.0
+                    };
+                    let full_h = (text_h + 104.0).max(Self::DEFAULT_DIALOGUE_SIZE.y);
+                    self.size.y = full_h;
+                    if self.ports.len() >= 2 {
+                        self.ports[0].relative_offset = Vec2::new(Self::NOTCH_DEPTH, 58.0);
+                        self.ports[1].relative_offset = Vec2::new(self.size.x - Self::NOTCH_DEPTH, self.size.y - 58.0);
+                    }
+                }
+            }
+            NodeData::Condition { .. } => {
+                if zoom < Self::LOD_ZOOM_THRESHOLD {
+                    self.size.y = Self::COMPACT_CONDITION_HEIGHT;
+                    if self.ports.len() >= 3 {
+                        self.ports[0].relative_offset = Vec2::new(Self::NOTCH_DEPTH, Self::COMPACT_CONDITION_HEIGHT * 0.5);
+                        self.ports[1].relative_offset = Vec2::new(self.size.x - Self::NOTCH_DEPTH, 16.0);
+                        self.ports[2].relative_offset = Vec2::new(self.size.x - Self::NOTCH_DEPTH, Self::COMPACT_CONDITION_HEIGHT - 16.0);
+                    }
+                } else {
+                    self.size.y = Self::DEFAULT_CONDITION_SIZE.y;
+                    if self.ports.len() >= 3 {
+                        self.ports[0].relative_offset = Vec2::new(Self::NOTCH_DEPTH, self.size.y * 0.5);
+                        self.ports[1].relative_offset = Vec2::new(self.size.x - Self::NOTCH_DEPTH, 36.0);
+                        self.ports[2].relative_offset = Vec2::new(self.size.x - Self::NOTCH_DEPTH, self.size.y - 36.0);
+                    }
+                }
+            }
+            NodeData::Anchor => {}
+        }
+    }
+
     /// Generates ports matching the node type and size.
     pub fn rebuild_ports(&mut self) {
         self.ports.clear();
         match &self.data {
             NodeData::Dialogue { .. } => {
-                // Input port on left edge
+                let (p0_y, p1_y) = if self.size.y <= Self::COMPACT_DIALOGUE_HEIGHT + 1.0 {
+                    (self.size.y * 0.5, self.size.y * 0.5)
+                } else {
+                    (58.0, self.size.y - 58.0)
+                };
+                // Input port in left notch
                 self.ports.push(Port {
                     id: 0,
                     name: "In".to_string(),
                     port_type: PortType::Input,
-                    relative_offset: Vec2::new(0.0, 50.0),
+                    relative_offset: Vec2::new(Self::NOTCH_DEPTH, p0_y),
                 });
-                // Output port on right edge
+                // Output port in right notch
                 self.ports.push(Port {
                     id: 1,
                     name: "Out".to_string(),
                     port_type: PortType::Output,
-                    relative_offset: Vec2::new(self.size.x, self.size.y * 0.52),
+                    relative_offset: Vec2::new(self.size.x - Self::NOTCH_DEPTH, p1_y),
                 });
             }
             NodeData::Condition { .. } => {
-                // Input port on left edge
+                let (p0_y, p1_y, p2_y) = if self.size.y <= Self::COMPACT_CONDITION_HEIGHT + 1.0 {
+                    (
+                        self.size.y * 0.5,
+                        16.0,
+                        self.size.y - 16.0,
+                    )
+                } else {
+                    (
+                        self.size.y * 0.5,
+                        36.0,
+                        self.size.y - 36.0,
+                    )
+                };
+                // Input port in left notch
                 self.ports.push(Port {
                     id: 0,
                     name: "In".to_string(),
                     port_type: PortType::Input,
-                    relative_offset: Vec2::new(0.0, self.size.y * 0.5),
+                    relative_offset: Vec2::new(Self::NOTCH_DEPTH, p0_y),
                 });
-                // TRUE Output port on top right
+                // TRUE Output port in right notch
                 self.ports.push(Port {
                     id: 1,
                     name: "TRUE".to_string(),
                     port_type: PortType::Output,
-                    relative_offset: Vec2::new(self.size.x, 32.0),
+                    relative_offset: Vec2::new(self.size.x - Self::NOTCH_DEPTH, p1_y),
                 });
-                // FALSE Output port on bottom right
+                // FALSE Output port in right notch
                 self.ports.push(Port {
                     id: 2,
                     name: "FALSE".to_string(),
                     port_type: PortType::Output,
-                    relative_offset: Vec2::new(self.size.x, self.size.y - 32.0),
+                    relative_offset: Vec2::new(self.size.x - Self::NOTCH_DEPTH, p2_y),
                 });
             }
             NodeData::Anchor => {
@@ -180,6 +250,13 @@ impl Graph {
             nodes: Vec::new(),
             connections: Vec::new(),
             next_node_id: 0,
+        }
+    }
+
+    /// Synchronizes node heights and port positions according to camera zoom LOD.
+    pub fn update_lod(&mut self, zoom: f32, ctx: &Context) {
+        for node in &mut self.nodes {
+            node.update_lod(zoom, Some(ctx));
         }
     }
 
@@ -301,7 +378,7 @@ impl Graph {
         let n0 = graph.add_node(
             NodeData::Dialogue {
                 speaker: "King Aurther Martin".to_string(),
-                text: "Take this pen and head toward the main gate there you will find a person, a mage which is capable of doing things far beyond your imaginations may take their soul and grief and make it into the best dialogue".to_string(),
+                text: "“Take this pen and head toward the main gate there you will find a person, a mage which is capable of doing things far beyond your imaginations may take their soul and grief and make it into the best dialogue”".to_string(),
                 audio_key: "KingAurtherMartin001.wav".to_string(),
                 loc_key: "LOC_KING_001".to_string(),
                 notes: "Commanding, weary tone".to_string(),
@@ -312,7 +389,7 @@ impl Graph {
         let n1 = graph.add_node(
             NodeData::Dialogue {
                 speaker: "Mage".to_string(),
-                text: "Take this pen and head toward the main gate there you will find a person, a mage which is capable of doing things far beyond your imaginations may take their soul and grief and make it into the best dialogue".to_string(),
+                text: "“Take this pen and head toward the main gate there you will find a person, a mage which is capable of doing things far beyond your imaginations may take their soul and grief and make it into the best dialogue”".to_string(),
                 audio_key: "KingAurtherMartin001.wav".to_string(),
                 loc_key: "LOC_MAGE_001".to_string(),
                 notes: "Mysterious whisper".to_string(),

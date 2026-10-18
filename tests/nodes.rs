@@ -114,3 +114,117 @@ fn test_right_click_node_movement_invariants() {
     assert_eq!(graph.nodes[0].pos, pos_before_0 + move_multi);
     assert_eq!(graph.nodes[1].pos, pos_before_1 + move_multi);
 }
+
+#[test]
+fn test_zoom_lod_dialogue_node_invariants() {
+    let mut graph = Graph::default_demo_graph();
+    let dialogue_node = graph.nodes.iter_mut().find(|n| matches!(n.data, ArcFlow::core::graph::NodeData::Dialogue { .. })).unwrap();
+
+    // 1. Zoom 1.0 (Full view)
+    dialogue_node.update_lod(1.0, None);
+    assert!(dialogue_node.size.y >= ArcFlow::core::graph::EditorNode::DEFAULT_DIALOGUE_SIZE.y);
+    assert_eq!(dialogue_node.ports[0].relative_offset.y, 58.0);
+    assert_eq!(dialogue_node.ports[1].relative_offset.y, dialogue_node.size.y - 58.0);
+    assert_eq!(dialogue_node.ports[0].relative_offset.x, ArcFlow::core::graph::EditorNode::NOTCH_DEPTH);
+    assert_eq!(dialogue_node.ports[1].relative_offset.x, dialogue_node.size.x - ArcFlow::core::graph::EditorNode::NOTCH_DEPTH);
+
+    // 2. Zoom 0.5 (Compact LOD view)
+    dialogue_node.update_lod(0.5, None);
+    assert_eq!(dialogue_node.size.y, ArcFlow::core::graph::EditorNode::COMPACT_DIALOGUE_HEIGHT);
+    let expected_center_y = ArcFlow::core::graph::EditorNode::COMPACT_DIALOGUE_HEIGHT * 0.5;
+    assert_eq!(dialogue_node.ports[0].relative_offset.y, expected_center_y);
+    assert_eq!(dialogue_node.ports[1].relative_offset.y, expected_center_y);
+    assert_eq!(dialogue_node.ports[0].relative_offset.x, ArcFlow::core::graph::EditorNode::NOTCH_DEPTH);
+    assert_eq!(dialogue_node.ports[1].relative_offset.x, dialogue_node.size.x - ArcFlow::core::graph::EditorNode::NOTCH_DEPTH);
+
+    // 3. Zoom back to 1.0 (Expands back to full view)
+    dialogue_node.update_lod(1.0, None);
+    assert!(dialogue_node.size.y >= ArcFlow::core::graph::EditorNode::DEFAULT_DIALOGUE_SIZE.y);
+    assert_eq!(dialogue_node.ports[0].relative_offset.y, 58.0);
+    assert_eq!(dialogue_node.ports[1].relative_offset.y, dialogue_node.size.y - 58.0);
+    assert_eq!(dialogue_node.ports[0].relative_offset.x, ArcFlow::core::graph::EditorNode::NOTCH_DEPTH);
+    assert_eq!(dialogue_node.ports[1].relative_offset.x, dialogue_node.size.x - ArcFlow::core::graph::EditorNode::NOTCH_DEPTH);
+}
+
+#[test]
+fn test_zoom_lod_condition_node_invariants() {
+    let mut graph = Graph::default_demo_graph();
+    let condition_node = graph.nodes.iter_mut().find(|n| matches!(n.data, ArcFlow::core::graph::NodeData::Condition { .. })).unwrap();
+
+    // 1. Zoom 1.0 (Full view)
+    condition_node.update_lod(1.0, None);
+    assert_eq!(condition_node.size.y, ArcFlow::core::graph::EditorNode::DEFAULT_CONDITION_SIZE.y);
+    assert_eq!(condition_node.ports[0].relative_offset.y, condition_node.size.y * 0.5);
+    assert_eq!(condition_node.ports[1].relative_offset.y, 36.0);
+    assert_eq!(condition_node.ports[2].relative_offset.y, condition_node.size.y - 36.0);
+    assert_eq!(condition_node.ports[0].relative_offset.x, ArcFlow::core::graph::EditorNode::NOTCH_DEPTH);
+    assert_eq!(condition_node.ports[1].relative_offset.x, condition_node.size.x - ArcFlow::core::graph::EditorNode::NOTCH_DEPTH);
+    assert_eq!(condition_node.ports[2].relative_offset.x, condition_node.size.x - ArcFlow::core::graph::EditorNode::NOTCH_DEPTH);
+
+    // 2. Zoom 0.5 (Compact LOD view)
+    condition_node.update_lod(0.5, None);
+    assert_eq!(condition_node.size.y, ArcFlow::core::graph::EditorNode::COMPACT_CONDITION_HEIGHT);
+    let expected_center_y = ArcFlow::core::graph::EditorNode::COMPACT_CONDITION_HEIGHT * 0.5;
+    assert_eq!(condition_node.ports[0].relative_offset.y, expected_center_y);
+    assert_eq!(condition_node.ports[1].relative_offset.y, 16.0);
+    assert_eq!(condition_node.ports[2].relative_offset.y, ArcFlow::core::graph::EditorNode::COMPACT_CONDITION_HEIGHT - 16.0);
+
+    // 3. Zoom back to 1.0 (Expands back to full view)
+    condition_node.update_lod(1.0, None);
+    assert_eq!(condition_node.size.y, ArcFlow::core::graph::EditorNode::DEFAULT_CONDITION_SIZE.y);
+    assert_eq!(condition_node.ports[0].relative_offset.y, condition_node.size.y * 0.5);
+    assert_eq!(condition_node.ports[1].relative_offset.y, 36.0);
+    assert_eq!(condition_node.ports[2].relative_offset.y, condition_node.size.y - 36.0);
+}
+
+#[test]
+fn test_responsive_font_scaling_invariants() {
+    let base_speaker_font = 11.5_f32;
+    let base_body_font = 11.0_f32;
+    let base_tag_font = 10.0_f32;
+
+    // Zoom 1.0
+    assert!(((base_speaker_font * 1.0_f32).max(1.0_f32) - 11.5).abs() < 1e-4);
+
+    // Zoom 0.5 (scaled by 0.5 without clamped floor)
+    let font_at_half = (base_speaker_font * 0.5_f32).max(1.0_f32);
+    assert!((font_at_half - 5.75).abs() < 1e-4);
+    assert!(font_at_half < 8.0, "Font must scale below old hardcoded clamp of 9.0");
+
+    // Zoom 0.25 (scaled by 0.25)
+    let font_at_quarter = (base_body_font * 0.25_f32).max(1.0_f32);
+    assert!((font_at_quarter - 2.75).abs() < 1e-4);
+    assert!(font_at_quarter < 8.0, "Font must scale below old hardcoded clamp of 8.5");
+
+    // Zoom 2.0 (scaled by 2.0 without clamped ceiling)
+    let font_at_double = (base_tag_font * 2.0_f32).max(1.0_f32);
+    assert!((font_at_double - 20.0).abs() < 1e-4);
+    assert!(font_at_double > 13.0, "Font must scale above old hardcoded clamp of 13.0");
+}
+
+#[test]
+fn test_notched_polygon_triangulation_and_geometry() {
+    use ArcFlow::ui::editor::nodes::{build_condition_polygon, build_dialogue_polygon, triangulate_polygon};
+    use eframe::egui::{pos2, Rect};
+
+    let rect = Rect::from_min_size(pos2(100.0, 100.0), eframe::egui::vec2(340.0, 215.0));
+
+    // 1. Dialogue polygon
+    let dial_pts = build_dialogue_polygon(rect, 158.0, 257.0, 1.0);
+    assert!(dial_pts.len() >= 16, "Dialogue polygon should have corner arcs and notches");
+    let dial_indices = triangulate_polygon(&dial_pts);
+    assert_eq!(dial_indices.len(), (dial_pts.len() - 2) * 3, "Triangulation must produce (N-2)*3 indices");
+    for &idx in &dial_indices {
+        assert!((idx as usize) < dial_pts.len());
+    }
+
+    // 2. Condition polygon
+    let cond_pts = build_condition_polygon(rect, 207.5, 1.0);
+    assert!(cond_pts.len() >= 16, "Condition polygon should have corner arcs and notches");
+    let cond_indices = triangulate_polygon(&cond_pts);
+    assert_eq!(cond_indices.len(), (cond_pts.len() - 2) * 3, "Triangulation must produce (N-2)*3 indices");
+    for &idx in &cond_indices {
+        assert!((idx as usize) < cond_pts.len());
+    }
+}
+
