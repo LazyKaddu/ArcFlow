@@ -230,7 +230,7 @@ pub fn paint_capsule_port(
 
     // Optional port label if it's named (like TRUE / FALSE on condition node)
     if zoom >= EditorNode::LOD_ZOOM_THRESHOLD && !port.name.is_empty() && port.name != "In" && port.name != "Out" {
-        let label_font = FontId::proportional((9.0_f32 * zoom).clamp(8.0_f32, 12.0_f32));
+        let label_font = FontId::proportional((9.0_f32 * zoom).max(1.0_f32));
         let text_color = if port.name == "TRUE" {
             Color32::from_rgb(120, 220, 140)
         } else {
@@ -307,7 +307,7 @@ fn render_dialogue_node(
     if is_compact {
         // Compact LOD mode: Only display ID tag and Speaker in a clean single-line bar
         let id_tag = format!("#{}", node_id);
-        let tag_font = FontId::proportional((10.0_f32 * zoom).clamp(8.0_f32, 13.0_f32));
+        let tag_font = FontId::proportional((10.0_f32 * zoom).max(1.0_f32));
         painter.text(
             Pos2::new(screen_rect.max.x - 12.0_f32 * zoom, screen_rect.center().y),
             egui::Align2::RIGHT_CENTER,
@@ -328,13 +328,13 @@ fn render_dialogue_node(
         child_ui.horizontal_centered(|ui| {
             ui.label(
                 egui::RichText::new("DIALOGUE :")
-                    .font(FontId::proportional((11.5_f32 * zoom).clamp(9.0_f32, 14.0_f32)))
+                    .font(FontId::proportional((11.5_f32 * zoom).max(1.0_f32)))
                     .strong()
                     .color(Color32::from_rgb(220, 220, 230)),
             );
 
             let speaker_edit = TextEdit::singleline(speaker)
-                .font(FontId::proportional((11.5_f32 * zoom).clamp(9.0_f32, 14.0_f32)))
+                .font(FontId::proportional((11.5_f32 * zoom).max(1.0_f32)))
                 .text_color(Color32::from_rgb(255, 255, 255))
                 .frame(false)
                 .desired_width(140.0_f32 * zoom);
@@ -357,7 +357,7 @@ fn render_dialogue_node(
         );
 
         let id_tag = format!("#{}", node_id);
-        let tag_font = FontId::proportional((10.0_f32 * zoom).clamp(8.0_f32, 13.0_f32));
+        let tag_font = FontId::proportional((10.0_f32 * zoom).max(1.0_f32));
         painter.text(
             Pos2::new(screen_rect.max.x - 12.0_f32 * zoom, screen_rect.min.y + header_h * 0.5_f32),
             egui::Align2::RIGHT_CENTER,
@@ -376,13 +376,13 @@ fn render_dialogue_node(
         child_ui.horizontal(|ui| {
             ui.label(
                 egui::RichText::new("DIALOGUE :")
-                    .font(FontId::proportional((11.5_f32 * zoom).clamp(9.0_f32, 14.0_f32)))
+                    .font(FontId::proportional((11.5_f32 * zoom).max(1.0_f32)))
                     .strong()
                     .color(Color32::from_rgb(220, 220, 230)),
             );
 
             let speaker_edit = TextEdit::singleline(speaker)
-                .font(FontId::proportional((11.5_f32 * zoom).clamp(9.0_f32, 14.0_f32)))
+                .font(FontId::proportional((11.5_f32 * zoom).max(1.0_f32)))
                 .text_color(Color32::from_rgb(255, 255, 255))
                 .frame(false)
                 .desired_width(140.0_f32 * zoom);
@@ -400,7 +400,7 @@ fn render_dialogue_node(
             .inner_margin(Margin::same(2.0_f32 * zoom))
             .show(&mut child_ui, |ui| {
                 let body_edit = TextEdit::multiline(text)
-                    .font(FontId::proportional((11.0_f32 * zoom).clamp(8.5_f32, 13.5_f32)))
+                    .font(FontId::proportional((11.0_f32 * zoom).max(1.0_f32)))
                     .text_color(Color32::from_rgb(205, 205, 212))
                     .frame(false)
                     .desired_width(screen_rect.width() - 24.0_f32 * zoom)
@@ -418,12 +418,12 @@ fn render_dialogue_node(
         child_ui.horizontal(|ui| {
             ui.label(
                 egui::RichText::new("AUDIO :")
-                    .font(FontId::proportional((9.5_f32 * zoom).clamp(7.5_f32, 12.0_f32)))
+                    .font(FontId::proportional((9.5_f32 * zoom).max(1.0_f32)))
                     .color(Color32::from_rgb(130, 130, 140)),
             );
 
             let audio_edit = TextEdit::singleline(audio_key)
-                .font(FontId::proportional((9.5_f32 * zoom).clamp(7.5_f32, 12.0_f32)))
+                .font(FontId::proportional((9.5_f32 * zoom).max(1.0_f32)))
                 .text_color(Color32::from_rgb(170, 170, 185))
                 .frame(false)
                 .desired_width(170.0_f32 * zoom);
@@ -510,7 +510,7 @@ fn render_condition_node(
 
     if is_compact {
         // Compact LOD mode: Only display 'BRANCH' title and '#ID' tag
-        let title_font = FontId::proportional((11.5_f32 * zoom).clamp(9.0_f32, 14.0_f32));
+        let title_font = FontId::proportional((11.5_f32 * zoom).max(1.0_f32));
         painter.text(
             Pos2::new(screen_rect.min.x + 14.0_f32 * zoom, screen_rect.center().y),
             egui::Align2::LEFT_CENTER,
@@ -520,7 +520,7 @@ fn render_condition_node(
         );
 
         let id_tag = format!("#{}", node_id);
-        let tag_font = FontId::proportional((10.0_f32 * zoom).clamp(8.0_f32, 13.0_f32));
+        let tag_font = FontId::proportional((10.0_f32 * zoom).max(1.0_f32));
         painter.text(
             Pos2::new(screen_rect.max.x - 12.0_f32 * zoom, screen_rect.center().y),
             egui::Align2::RIGHT_CENTER,
@@ -541,7 +541,7 @@ fn render_condition_node(
         );
 
         // Header Title: BRANCH
-        let title_font = FontId::proportional((11.0_f32 * zoom).clamp(8.5_f32, 13.5_f32));
+        let title_font = FontId::proportional((11.0_f32 * zoom).max(1.0_f32));
         painter.text(
             Pos2::new(screen_rect.min.x + 12.0_f32 * zoom, screen_rect.min.y + header_h * 0.5_f32),
             egui::Align2::LEFT_CENTER,
@@ -552,7 +552,7 @@ fn render_condition_node(
 
         // Header ID tag: #<id>
         let id_tag = format!("#{}", node_id);
-        let tag_font = FontId::proportional((10.0_f32 * zoom).clamp(8.0_f32, 13.0_f32));
+        let tag_font = FontId::proportional((10.0_f32 * zoom).max(1.0_f32));
         painter.text(
             Pos2::new(screen_rect.max.x - 12.0_f32 * zoom, screen_rect.min.y + header_h * 0.5_f32),
             egui::Align2::RIGHT_CENTER,
@@ -579,7 +579,7 @@ fn render_condition_node(
 
         child_ui.vertical_centered(|ui| {
             let var_edit = TextEdit::singleline(variable)
-                .font(FontId::monospace((10.0_f32 * zoom).clamp(8.0_f32, 12.5_f32)))
+                .font(FontId::monospace((10.0_f32 * zoom).max(1.0_f32)))
                 .text_color(Color32::from_rgb(180, 210, 245))
                 .hint_text("[ VARIABLE ]")
                 .frame(false)
@@ -589,7 +589,7 @@ fn render_condition_node(
             }
 
             let op_edit = TextEdit::singleline(operator)
-                .font(FontId::monospace((10.0_f32 * zoom).clamp(8.0_f32, 12.5_f32)))
+                .font(FontId::monospace((10.0_f32 * zoom).max(1.0_f32)))
                 .text_color(Color32::from_rgb(245, 195, 120))
                 .hint_text("[ RELATIONAL OPERATOR ]")
                 .frame(false)
@@ -599,7 +599,7 @@ fn render_condition_node(
             }
 
             let val_edit = TextEdit::singleline(value)
-                .font(FontId::monospace((10.0_f32 * zoom).clamp(8.0_f32, 12.5_f32)))
+                .font(FontId::monospace((10.0_f32 * zoom).max(1.0_f32)))
                 .text_color(Color32::from_rgb(150, 235, 160))
                 .hint_text("[ VALUE ]")
                 .frame(false)

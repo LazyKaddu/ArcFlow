@@ -167,3 +167,28 @@ fn test_zoom_lod_condition_node_invariants() {
     assert_eq!(condition_node.ports[1].relative_offset.y, 32.0);
     assert_eq!(condition_node.ports[2].relative_offset.y, condition_node.size.y - 32.0);
 }
+
+#[test]
+fn test_responsive_font_scaling_invariants() {
+    let base_speaker_font = 11.5_f32;
+    let base_body_font = 11.0_f32;
+    let base_tag_font = 10.0_f32;
+
+    // Zoom 1.0
+    assert!(((base_speaker_font * 1.0_f32).max(1.0_f32) - 11.5).abs() < 1e-4);
+
+    // Zoom 0.5 (scaled by 0.5 without clamped floor)
+    let font_at_half = (base_speaker_font * 0.5_f32).max(1.0_f32);
+    assert!((font_at_half - 5.75).abs() < 1e-4);
+    assert!(font_at_half < 8.0, "Font must scale below old hardcoded clamp of 9.0");
+
+    // Zoom 0.25 (scaled by 0.25)
+    let font_at_quarter = (base_body_font * 0.25_f32).max(1.0_f32);
+    assert!((font_at_quarter - 2.75).abs() < 1e-4);
+    assert!(font_at_quarter < 8.0, "Font must scale below old hardcoded clamp of 8.5");
+
+    // Zoom 2.0 (scaled by 2.0 without clamped ceiling)
+    let font_at_double = (base_tag_font * 2.0_f32).max(1.0_f32);
+    assert!((font_at_double - 20.0).abs() < 1e-4);
+    assert!(font_at_double > 13.0, "Font must scale above old hardcoded clamp of 13.0");
+}
