@@ -61,10 +61,11 @@ pub fn render_navigation_rail(
             ui.set_height(screen_h);
 
             Frame::none()
-                .fill(Color32::from_rgb(26, 26, 29))
-                .stroke(Stroke::new(1.0_f32, Color32::from_rgb(45, 45, 50)))
+                .fill(Color32::from_rgb(70, 70, 70))
+                .stroke(Stroke::new(1.0_f32, Color32::from_rgb(95, 95, 95)))
                 .inner_margin(Margin::same(0.0_f32))
                 .show(ui, |ui| {
+                    ui.set_min_size(Vec2::new(rail_width, screen_h));
                     ui.vertical_centered(|ui| {
                         ui.add_space(14.0_f32);
 
@@ -80,7 +81,7 @@ pub fn render_navigation_rail(
                             egui::Button::new(
                                 egui::RichText::new(toggle_label)
                                     .font(FontId::monospace(13.0_f32))
-                                    .color(Color32::from_rgb(180, 180, 190)),
+                                    .color(Color32::from_rgb(220, 220, 230)),
                             )
                             .frame(false),
                         );
@@ -113,8 +114,8 @@ pub fn render_navigation_rail(
                 ui.set_height(screen_h);
 
                 Frame::none()
-                    .fill(Color32::from_rgb(32, 32, 36))
-                    .stroke(Stroke::new(1.0_f32, Color32::from_rgb(50, 50, 56)))
+                    .fill(Color32::from_rgb(70, 70, 70))
+                    .stroke(Stroke::new(1.0_f32, Color32::from_rgb(95, 95, 95)))
                     .inner_margin(Margin::same(14.0_f32))
                     .shadow(eframe::epaint::Shadow {
                         offset: Vec2::new(6.0_f32, 0.0_f32),
@@ -123,12 +124,14 @@ pub fn render_navigation_rail(
                         color: Color32::from_black_alpha(100),
                     })
                     .show(ui, |ui| {
+                        ui.set_min_size(Vec2::new(rail_state.width - 28.0_f32, screen_h - 28.0_f32));
+
                         // Drawer Header
                         ui.horizontal(|ui| {
                             ui.label(
                                 egui::RichText::new(rail_state.active_tab.title())
                                     .font(FontId::proportional(14.0_f32))
-                                    .color(Color32::from_rgb(230, 230, 240))
+                                    .color(Color32::from_rgb(240, 240, 245))
                                     .strong(),
                             );
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -139,18 +142,27 @@ pub fn render_navigation_rail(
                         });
 
                         ui.add_space(6.0_f32);
-                        ui.separator();
+                        let (sep_rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 1.0_f32), Sense::hover());
+                        ui.painter().line_segment(
+                            [
+                                Pos2::new(sep_rect.min.x, sep_rect.center().y),
+                                Pos2::new(sep_rect.max.x, sep_rect.center().y),
+                            ],
+                            Stroke::new(0.4_f32, Color32::from_rgb(165, 165, 165)),
+                        );
                         ui.add_space(8.0_f32);
 
                         // Tab Content
-                        egui::ScrollArea::vertical().show(ui, |ui| {
-                            match rail_state.active_tab {
-                                RailTab::Global => render_global_drawer(ui, blackboard),
-                                RailTab::Entity => render_entity_drawer(ui, blackboard),
-                                RailTab::Assets => render_assets_drawer(ui, blackboard),
-                                RailTab::Flow => render_flow_drawer(ui, blackboard),
-                            }
-                        });
+                        egui::ScrollArea::vertical()
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| {
+                                match rail_state.active_tab {
+                                    RailTab::Global => render_global_drawer(ui, blackboard),
+                                    RailTab::Entity => render_entity_drawer(ui, blackboard),
+                                    RailTab::Assets => render_assets_drawer(ui, blackboard),
+                                    RailTab::Flow => render_flow_drawer(ui, blackboard),
+                                }
+                            });
                     });
             });
     }

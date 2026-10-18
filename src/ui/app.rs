@@ -136,7 +136,7 @@ impl ArcFlowApp {
 
         // 4. Viewport canvas fills the central area
         egui::CentralPanel::default()
-            .frame(egui::Frame::none().fill(egui::Color32::from_rgb(63, 63, 67)))
+            .frame(egui::Frame::none().fill(egui::Color32::from_rgb(99, 99, 98)))
             .show(ctx, |ui| {
                 let painter = ui.painter().clone();
 

@@ -1,6 +1,6 @@
 //! Contextual Right Inspector Drawer: Deep Property Editing without Canvas Clutter
 use eframe::egui::{
-    self, Area, Color32, ComboBox, FontId, Frame, Id, Margin, Order, Pos2, Rounding, Stroke,
+    self, Area, Color32, ComboBox, FontId, Frame, Id, Margin, Order, Pos2, Rounding, Sense, Stroke,
     TextEdit, Ui, Vec2,
 };
 use crate::core::blackboard::Blackboard;
@@ -49,10 +49,10 @@ pub fn render_inspector_drawer(
                 egui::Button::new(
                     egui::RichText::new(label)
                         .font(FontId::monospace(13.0_f32))
-                        .color(Color32::from_rgb(200, 200, 210)),
+                        .color(Color32::from_rgb(220, 220, 230)),
                 )
-                .fill(Color32::from_rgb(42, 42, 46))
-                .stroke(Stroke::new(1.0_f32, Color32::from_rgb(65, 65, 72)))
+                .fill(Color32::from_rgb(80, 80, 80))
+                .stroke(Stroke::new(1.0_f32, Color32::from_rgb(95, 95, 95)))
                 .rounding(Rounding::same(6.0_f32)),
             );
             if btn.clicked() {
@@ -74,8 +74,8 @@ pub fn render_inspector_drawer(
                 ui.set_height(screen_h);
 
                 Frame::none()
-                    .fill(Color32::from_rgb(28, 28, 32))
-                    .stroke(Stroke::new(1.0_f32, Color32::from_rgb(48, 48, 54)))
+                    .fill(Color32::from_rgb(80, 80, 80))
+                    .stroke(Stroke::new(1.0_f32, Color32::from_rgb(95, 95, 95)))
                     .inner_margin(Margin::same(14.0_f32))
                     .shadow(eframe::epaint::Shadow {
                         offset: Vec2::new(-6.0_f32, 0.0_f32),
@@ -84,12 +84,14 @@ pub fn render_inspector_drawer(
                         color: Color32::from_black_alpha(110),
                     })
                     .show(ui, |ui| {
+                        ui.set_min_size(Vec2::new(inspector_state.width - 28.0_f32, screen_h - 28.0_f32));
+
                         // Header
                         ui.horizontal(|ui| {
                             ui.label(
                                 egui::RichText::new("Inspector")
                                     .font(FontId::proportional(14.5_f32))
-                                    .color(Color32::from_rgb(235, 235, 245))
+                                    .color(Color32::from_rgb(240, 240, 245))
                                     .strong(),
                             );
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -100,23 +102,32 @@ pub fn render_inspector_drawer(
                         });
 
                         ui.add_space(4.0_f32);
-                        ui.separator();
+                        let (sep_rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 1.0_f32), Sense::hover());
+                        ui.painter().line_segment(
+                            [
+                                Pos2::new(sep_rect.min.x, sep_rect.center().y),
+                                Pos2::new(sep_rect.max.x, sep_rect.center().y),
+                            ],
+                            Stroke::new(0.4_f32, Color32::from_rgb(165, 165, 165)),
+                        );
                         ui.add_space(8.0_f32);
 
-                        egui::ScrollArea::vertical().show(ui, |ui| {
-                            if let Some(node_id) = selected_id {
-                                if let Some(node) = graph.get_node_mut(node_id) {
-                                    render_selected_node_inspector(
-                                        ui,
-                                        node,
-                                        blackboard,
-                                        &mut remove_node_id,
-                                    );
+                        egui::ScrollArea::vertical()
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| {
+                                if let Some(node_id) = selected_id {
+                                    if let Some(node) = graph.get_node_mut(node_id) {
+                                        render_selected_node_inspector(
+                                            ui,
+                                            node,
+                                            blackboard,
+                                            &mut remove_node_id,
+                                        );
+                                    }
+                                } else {
+                                    render_graph_summary_inspector(ui, graph);
                                 }
-                            } else {
-                                render_graph_summary_inspector(ui, graph);
-                            }
-                        });
+                            });
                     });
             });
 

@@ -65,7 +65,7 @@ pub fn render_floating_toolbar(
                         let (sep_rect, _) = ui.allocate_exact_size(Vec2::new(1.0_f32, 22.0_f32), egui::Sense::hover());
                         ui.painter().line_segment(
                             [sep_rect.center_top(), sep_rect.center_bottom()],
-                            Stroke::new(1.0_f32, Color32::from_rgb(94, 94, 100)),
+                            Stroke::new(0.4_f32, Color32::from_rgb(165, 165, 165)),
                         );
 
                         // 2. Action Icons (Save, Undo, Redo from assets)

@@ -509,12 +509,12 @@ fn render_dialogue_node(
     let is_compact = zoom < EditorNode::LOD_ZOOM_THRESHOLD;
     let painter = ui.painter().clone();
 
-    // Card background & borders
-    let bg_color = Color32::from_rgb(76, 76, 80);
+    // Card background & borders (rgb(88, 88, 88))
+    let bg_color = Color32::from_rgb(88, 88, 88);
     let border_color = if selected {
-        Color32::from_rgb(225, 225, 240)
+        Color32::from_rgb(235, 235, 245)
     } else {
-        Color32::from_rgb(98, 98, 104)
+        Color32::from_rgb(105, 105, 110)
     };
     let border_width = if selected { 1.5_f32 } else { 1.0_f32 };
 
@@ -594,22 +594,22 @@ fn render_dialogue_node(
         let footer_h = 34.0_f32 * zoom;
         let divider_bot_y = screen_rect.max.y - footer_h;
 
-        // Top horizontal divider line below header
+        // Top horizontal divider line below header (0.4 stroke, rgb(165, 165, 165))
         painter.line_segment(
             [
                 Pos2::new(screen_rect.min.x, divider_top_y),
                 Pos2::new(screen_rect.max.x, divider_top_y),
             ],
-            Stroke::new(1.0_f32, Color32::from_rgb(94, 94, 98)),
+            Stroke::new((0.4_f32 * zoom).max(0.35_f32), Color32::from_rgb(165, 165, 165)),
         );
 
-        // Bottom horizontal divider line above footer
+        // Bottom horizontal divider line above footer (0.4 stroke, rgb(165, 165, 165))
         painter.line_segment(
             [
                 Pos2::new(screen_rect.min.x, divider_bot_y),
                 Pos2::new(screen_rect.max.x, divider_bot_y),
             ],
-            Stroke::new(1.0_f32, Color32::from_rgb(94, 94, 98)),
+            Stroke::new((0.4_f32 * zoom).max(0.35_f32), Color32::from_rgb(165, 165, 165)),
         );
 
         let header_center_y = screen_rect.min.y + header_h * 0.5_f32;
@@ -769,11 +769,11 @@ fn render_condition_node(
     let is_compact = zoom < EditorNode::LOD_ZOOM_THRESHOLD;
     let painter = ui.painter().clone();
 
-    let bg_color = Color32::from_rgb(76, 76, 80);
+    let bg_color = Color32::from_rgb(88, 88, 88);
     let border_color = if selected {
-        Color32::from_rgb(225, 225, 240)
+        Color32::from_rgb(235, 235, 245)
     } else {
-        Color32::from_rgb(98, 98, 104)
+        Color32::from_rgb(105, 105, 110)
     };
     let border_width = if selected { 1.5_f32 } else { 1.0_f32 };
 
