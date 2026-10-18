@@ -1,5 +1,5 @@
 //! The core narrative graph data structures and node models.
-use eframe::egui::{Pos2, Vec2};
+use eframe::egui::{Color32, Context, FontId, Pos2, Vec2};
 
 /// Specifies the directionality of a node port.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -66,8 +66,10 @@ pub struct EditorNode {
 
 impl EditorNode {
     pub const DEFAULT_DIALOGUE_SIZE: Vec2 = Vec2::new(315.0, 185.0);
+    pub const COMPACT_DIALOGUE_HEIGHT: f32 = 46.0;
     pub const DEFAULT_CONDITION_SIZE: Vec2 = Vec2::new(235.0, 125.0);
     pub const DEFAULT_ANCHOR_SIZE: Vec2 = Vec2::new(20.0, 20.0);
+    pub const LOD_ZOOM_THRESHOLD: f32 = 0.65;
 
     pub fn new(id: usize, data: NodeData, pos: Pos2) -> Self {
         let size = match &data {
@@ -89,24 +91,57 @@ impl EditorNode {
         node
     }
 
+    /// Updates node height and port positioning based on camera zoom Level of Detail (LOD).
+    pub fn update_lod(&mut self, zoom: f32, ctx: Option<&Context>) {
+        if let NodeData::Dialogue { text, .. } = &self.data {
+            if zoom < Self::LOD_ZOOM_THRESHOLD {
+                self.size.y = Self::COMPACT_DIALOGUE_HEIGHT;
+                if self.ports.len() >= 2 {
+                    self.ports[0].relative_offset = Vec2::new(0.0, Self::COMPACT_DIALOGUE_HEIGHT * 0.5);
+                    self.ports[1].relative_offset = Vec2::new(self.size.x, Self::COMPACT_DIALOGUE_HEIGHT * 0.5);
+                }
+            } else {
+                let text_h = if let Some(ctx) = ctx {
+                    let font_id = FontId::proportional(11.0);
+                    let wrap_width = Self::DEFAULT_DIALOGUE_SIZE.x - 24.0;
+                    ctx.fonts(|f| f.layout(text.clone(), font_id, Color32::WHITE, wrap_width).size().y)
+                } else {
+                    let lines = text.lines().count().max(1);
+                    (lines as f32) * 16.0
+                };
+                let full_h = (text_h + 96.0).max(Self::DEFAULT_DIALOGUE_SIZE.y);
+                self.size.y = full_h;
+                if self.ports.len() >= 2 {
+                    self.ports[0].relative_offset = Vec2::new(0.0, 50.0);
+                    self.ports[1].relative_offset = Vec2::new(self.size.x, self.size.y * 0.52);
+                }
+            }
+        }
+    }
+
     /// Generates ports matching the node type and size.
     pub fn rebuild_ports(&mut self) {
         self.ports.clear();
         match &self.data {
             NodeData::Dialogue { .. } => {
+                let (p0_y, p1_y) = if self.size.y <= Self::COMPACT_DIALOGUE_HEIGHT + 1.0 {
+                    (self.size.y * 0.5, self.size.y * 0.5)
+                } else {
+                    (50.0, self.size.y * 0.52)
+                };
                 // Input port on left edge
                 self.ports.push(Port {
                     id: 0,
                     name: "In".to_string(),
                     port_type: PortType::Input,
-                    relative_offset: Vec2::new(0.0, 50.0),
+                    relative_offset: Vec2::new(0.0, p0_y),
                 });
                 // Output port on right edge
                 self.ports.push(Port {
                     id: 1,
                     name: "Out".to_string(),
                     port_type: PortType::Output,
-                    relative_offset: Vec2::new(self.size.x, self.size.y * 0.52),
+                    relative_offset: Vec2::new(self.size.x, p1_y),
                 });
             }
             NodeData::Condition { .. } => {
@@ -180,6 +215,13 @@ impl Graph {
             nodes: Vec::new(),
             connections: Vec::new(),
             next_node_id: 0,
+        }
+    }
+
+    /// Synchronizes node heights and port positions according to camera zoom LOD.
+    pub fn update_lod(&mut self, zoom: f32, ctx: &Context) {
+        for node in &mut self.nodes {
+            node.update_lod(zoom, Some(ctx));
         }
     }
 

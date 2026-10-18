@@ -140,6 +140,9 @@ impl ArcFlowApp {
             .show(ctx, |ui| {
                 let painter = ui.painter().clone();
 
+                // 4.0 Synchronize node LOD sizes and port offsets for the current camera zoom
+                self.graph.update_lod(self.canvas_state.zoom, ctx);
+
                 // 4.1 Frustum-culled dot grid background
                 crate::ui::editor::canvas::render_frustum_culled_dot_grid(
                     ui,

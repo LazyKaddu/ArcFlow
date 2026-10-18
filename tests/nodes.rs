@@ -114,3 +114,28 @@ fn test_right_click_node_movement_invariants() {
     assert_eq!(graph.nodes[0].pos, pos_before_0 + move_multi);
     assert_eq!(graph.nodes[1].pos, pos_before_1 + move_multi);
 }
+
+#[test]
+fn test_zoom_lod_dialogue_node_invariants() {
+    let mut graph = Graph::default_demo_graph();
+    let dialogue_node = graph.nodes.iter_mut().find(|n| matches!(n.data, ArcFlow::core::graph::NodeData::Dialogue { .. })).unwrap();
+
+    // 1. Zoom 1.0 (Full view)
+    dialogue_node.update_lod(1.0, None);
+    assert!(dialogue_node.size.y >= ArcFlow::core::graph::EditorNode::DEFAULT_DIALOGUE_SIZE.y);
+    assert_eq!(dialogue_node.ports[0].relative_offset.y, 50.0);
+    assert_eq!(dialogue_node.ports[1].relative_offset.y, dialogue_node.size.y * 0.52);
+
+    // 2. Zoom 0.5 (Compact LOD view)
+    dialogue_node.update_lod(0.5, None);
+    assert_eq!(dialogue_node.size.y, ArcFlow::core::graph::EditorNode::COMPACT_DIALOGUE_HEIGHT);
+    let expected_center_y = ArcFlow::core::graph::EditorNode::COMPACT_DIALOGUE_HEIGHT * 0.5;
+    assert_eq!(dialogue_node.ports[0].relative_offset.y, expected_center_y);
+    assert_eq!(dialogue_node.ports[1].relative_offset.y, expected_center_y);
+
+    // 3. Zoom back to 1.0 (Expands back to full view)
+    dialogue_node.update_lod(1.0, None);
+    assert!(dialogue_node.size.y >= ArcFlow::core::graph::EditorNode::DEFAULT_DIALOGUE_SIZE.y);
+    assert_eq!(dialogue_node.ports[0].relative_offset.y, 50.0);
+    assert_eq!(dialogue_node.ports[1].relative_offset.y, dialogue_node.size.y * 0.52);
+}

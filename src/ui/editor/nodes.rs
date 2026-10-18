@@ -200,8 +200,8 @@ pub fn paint_capsule_port(
     is_hovered: bool,
     zoom: f32,
 ) {
-    let pin_w = (6.0_f32 * zoom).clamp(4.0_f32, 10.0_f32);
-    let pin_h = (24.0_f32 * zoom).clamp(16.0_f32, 36.0_f32);
+    let pin_w = (6.0_f32 * zoom).clamp(3.5_f32, 10.0_f32);
+    let pin_h = (24.0_f32 * zoom).clamp(10.0_f32, 36.0_f32);
     let rounding = Rounding::same(pin_w * 0.5_f32);
 
     let pin_rect = Rect::from_center_size(center, Vec2::new(pin_w, pin_h));
@@ -252,7 +252,7 @@ fn render_dialogue_node(
     ui: &mut Ui,
     node_id: usize,
     selected: bool,
-    size: &mut Vec2,
+    _size: &mut Vec2,
     pos: Pos2,
     ports: &[Port],
     speaker: &mut String,
@@ -266,7 +266,12 @@ fn render_dialogue_node(
     is_cable_dragging: bool,
 ) {
     let zoom = state.zoom;
-    let rounding = Rounding::same((8.0_f32 * zoom).clamp(4.0_f32, 12.0_f32));
+    let is_compact = zoom < EditorNode::LOD_ZOOM_THRESHOLD;
+    let rounding = if is_compact {
+        Rounding::same((6.0_f32 * zoom).clamp(3.0_f32, 8.0_f32))
+    } else {
+        Rounding::same((8.0_f32 * zoom).clamp(4.0_f32, 12.0_f32))
+    };
 
     let painter = ui.painter().clone();
 
@@ -280,7 +285,8 @@ fn render_dialogue_node(
     let border_width = if selected { 1.5_f32 } else { 1.0_f32 };
 
     // Drop shadow
-    let shadow_rect = screen_rect.translate(Vec2::new(0.0_f32, 4.0_f32 * zoom));
+    let shadow_y = if is_compact { 2.0_f32 * zoom } else { 4.0_f32 * zoom };
+    let shadow_rect = screen_rect.translate(Vec2::new(0.0_f32, shadow_y));
     painter.rect_filled(
         shadow_rect,
         rounding,
@@ -295,100 +301,139 @@ fn render_dialogue_node(
         Stroke::new(border_width, border_color),
     );
 
-    // Top Header Banner
-    let header_h = 32.0_f32 * zoom;
-    let divider_y = screen_rect.min.y + header_h;
-    painter.line_segment(
-        [
-            Pos2::new(screen_rect.min.x, divider_y),
-            Pos2::new(screen_rect.max.x, divider_y),
-        ],
-        Stroke::new(1.0_f32, Color32::from_rgb(62, 62, 68)),
-    );
-
-    // Right-aligned #ID tag in header
-    let id_tag = format!("#{}", node_id);
-    let tag_font = FontId::proportional((10.0_f32 * zoom).clamp(8.0_f32, 13.0_f32));
-    painter.text(
-        Pos2::new(screen_rect.max.x - 12.0_f32 * zoom, screen_rect.min.y + header_h * 0.5_f32),
-        egui::Align2::RIGHT_CENTER,
-        &id_tag,
-        tag_font,
-        Color32::from_rgb(140, 140, 150),
-    );
-
     let card_response = ui.allocate_rect(screen_rect, Sense::click());
     let mut is_editing = false;
 
-    // Use a child Ui for in-card editable content
-    let content_rect = screen_rect.shrink(8.0_f32 * zoom);
-    let mut child_ui = ui.child_ui(content_rect, *ui.layout());
-    // Disable text input child_ui during right-click so right-drag never interacts with text fields
-    if secondary_down {
-        child_ui.set_enabled(false);
-    }
-
-    // 1. Header: DIALOGUE : <Speaker Name>
-    child_ui.horizontal(|ui| {
-        ui.label(
-            egui::RichText::new("DIALOGUE :")
-                .font(FontId::proportional((11.5_f32 * zoom).clamp(9.0_f32, 14.0_f32)))
-                .strong()
-                .color(Color32::from_rgb(220, 220, 230)),
+    if is_compact {
+        // Compact LOD mode: Only display ID tag and Speaker in a clean single-line bar
+        let id_tag = format!("#{}", node_id);
+        let tag_font = FontId::proportional((10.0_f32 * zoom).clamp(8.0_f32, 13.0_f32));
+        painter.text(
+            Pos2::new(screen_rect.max.x - 12.0_f32 * zoom, screen_rect.center().y),
+            egui::Align2::RIGHT_CENTER,
+            &id_tag,
+            tag_font,
+            Color32::from_rgb(140, 140, 150),
         );
 
-        let speaker_edit = TextEdit::singleline(speaker)
-            .font(FontId::proportional((11.5_f32 * zoom).clamp(9.0_f32, 14.0_f32)))
-            .text_color(Color32::from_rgb(255, 255, 255))
-            .frame(false)
-            .desired_width(140.0_f32 * zoom);
-
-        let res = ui.add(speaker_edit);
-        if res.has_focus() {
-            is_editing = true;
+        let content_rect = Rect::from_min_max(
+            Pos2::new(screen_rect.min.x + 10.0_f32 * zoom, screen_rect.min.y),
+            Pos2::new(screen_rect.max.x - 45.0_f32 * zoom, screen_rect.max.y),
+        );
+        let mut child_ui = ui.child_ui(content_rect, *ui.layout());
+        if secondary_down {
+            child_ui.set_enabled(false);
         }
-    });
 
-    child_ui.add_space(8.0_f32 * zoom);
+        child_ui.horizontal_centered(|ui| {
+            ui.label(
+                egui::RichText::new("DIALOGUE :")
+                    .font(FontId::proportional((11.5_f32 * zoom).clamp(9.0_f32, 14.0_f32)))
+                    .strong()
+                    .color(Color32::from_rgb(220, 220, 230)),
+            );
 
-    // 2. Body Text: Multi-line quoted dialogue copy
-    Frame::none()
-        .inner_margin(Margin::same(2.0_f32 * zoom))
-        .show(&mut child_ui, |ui| {
-            let body_edit = TextEdit::multiline(text)
-                .font(FontId::proportional((11.0_f32 * zoom).clamp(8.5_f32, 13.5_f32)))
-                .text_color(Color32::from_rgb(205, 205, 212))
+            let speaker_edit = TextEdit::singleline(speaker)
+                .font(FontId::proportional((11.5_f32 * zoom).clamp(9.0_f32, 14.0_f32)))
+                .text_color(Color32::from_rgb(255, 255, 255))
                 .frame(false)
-                .desired_width(screen_rect.width() - 24.0_f32 * zoom)
-                .desired_rows(4);
+                .desired_width(140.0_f32 * zoom);
 
-            let res = ui.add(body_edit);
+            let res = ui.add(speaker_edit);
+            if res.has_focus() {
+                is_editing = true;
+            }
+        });
+    } else {
+        // Full detail mode: Top header banner + divider + multiline text + audio key
+        let header_h = 32.0_f32 * zoom;
+        let divider_y = screen_rect.min.y + header_h;
+        painter.line_segment(
+            [
+                Pos2::new(screen_rect.min.x, divider_y),
+                Pos2::new(screen_rect.max.x, divider_y),
+            ],
+            Stroke::new(1.0_f32, Color32::from_rgb(62, 62, 68)),
+        );
+
+        let id_tag = format!("#{}", node_id);
+        let tag_font = FontId::proportional((10.0_f32 * zoom).clamp(8.0_f32, 13.0_f32));
+        painter.text(
+            Pos2::new(screen_rect.max.x - 12.0_f32 * zoom, screen_rect.min.y + header_h * 0.5_f32),
+            egui::Align2::RIGHT_CENTER,
+            &id_tag,
+            tag_font,
+            Color32::from_rgb(140, 140, 150),
+        );
+
+        let content_rect = screen_rect.shrink(8.0_f32 * zoom);
+        let mut child_ui = ui.child_ui(content_rect, *ui.layout());
+        if secondary_down {
+            child_ui.set_enabled(false);
+        }
+
+        // 1. Header: DIALOGUE : <Speaker Name>
+        child_ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new("DIALOGUE :")
+                    .font(FontId::proportional((11.5_f32 * zoom).clamp(9.0_f32, 14.0_f32)))
+                    .strong()
+                    .color(Color32::from_rgb(220, 220, 230)),
+            );
+
+            let speaker_edit = TextEdit::singleline(speaker)
+                .font(FontId::proportional((11.5_f32 * zoom).clamp(9.0_f32, 14.0_f32)))
+                .text_color(Color32::from_rgb(255, 255, 255))
+                .frame(false)
+                .desired_width(140.0_f32 * zoom);
+
+            let res = ui.add(speaker_edit);
             if res.has_focus() {
                 is_editing = true;
             }
         });
 
-    child_ui.add_space(4.0_f32 * zoom);
+        child_ui.add_space(8.0_f32 * zoom);
 
-    // 3. Footer: AUDIO : <Audio File>
-    child_ui.horizontal(|ui| {
-        ui.label(
-            egui::RichText::new("AUDIO :")
+        // 2. Body Text: Multi-line quoted dialogue copy
+        Frame::none()
+            .inner_margin(Margin::same(2.0_f32 * zoom))
+            .show(&mut child_ui, |ui| {
+                let body_edit = TextEdit::multiline(text)
+                    .font(FontId::proportional((11.0_f32 * zoom).clamp(8.5_f32, 13.5_f32)))
+                    .text_color(Color32::from_rgb(205, 205, 212))
+                    .frame(false)
+                    .desired_width(screen_rect.width() - 24.0_f32 * zoom)
+                    .desired_rows(4);
+
+                let res = ui.add(body_edit);
+                if res.has_focus() {
+                    is_editing = true;
+                }
+            });
+
+        child_ui.add_space(4.0_f32 * zoom);
+
+        // 3. Footer: AUDIO : <Audio File>
+        child_ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new("AUDIO :")
+                    .font(FontId::proportional((9.5_f32 * zoom).clamp(7.5_f32, 12.0_f32)))
+                    .color(Color32::from_rgb(130, 130, 140)),
+            );
+
+            let audio_edit = TextEdit::singleline(audio_key)
                 .font(FontId::proportional((9.5_f32 * zoom).clamp(7.5_f32, 12.0_f32)))
-                .color(Color32::from_rgb(130, 130, 140)),
-        );
+                .text_color(Color32::from_rgb(170, 170, 185))
+                .frame(false)
+                .desired_width(170.0_f32 * zoom);
 
-        let audio_edit = TextEdit::singleline(audio_key)
-            .font(FontId::proportional((9.5_f32 * zoom).clamp(7.5_f32, 12.0_f32)))
-            .text_color(Color32::from_rgb(170, 170, 185))
-            .frame(false)
-            .desired_width(170.0_f32 * zoom);
-
-        let res = ui.add(audio_edit);
-        if res.has_focus() {
-            is_editing = true;
-        }
-    });
+            let res = ui.add(audio_edit);
+            if res.has_focus() {
+                is_editing = true;
+            }
+        });
+    }
 
     // Fallback card click selection
     if (card_response.clicked() || (primary_clicked && card_response.hovered()))
@@ -406,11 +451,6 @@ fn render_dialogue_node(
         let is_hovered = interaction.hovered_port == Some((node_id, port_idx));
         paint_capsule_port(&painter, port_screen, port, is_hovered, zoom);
     }
-
-    // Dynamic height adjustment to fit text comfortably if needed
-    let min_h = EditorNode::DEFAULT_DIALOGUE_SIZE.y;
-    let measured_h = (child_ui.min_rect().height() / zoom + 28.0_f32).max(min_h);
-    size.y = measured_h;
 }
 
 /// Renders a Condition Node card with internal Bézier bifurcation paths to TRUE and FALSE ports.
